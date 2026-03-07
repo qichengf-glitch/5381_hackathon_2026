@@ -1,6 +1,31 @@
 # Warehouse & Historical Analytics Page Server Logic
 
 warehouse_server <- function(input, output, session, shipments, historical_shipments, warehouse_status_by_cargo) {
+  stress_palette <- c(
+    "Normal" = "#8FA85E",
+    "Medium Stress" = "#C8A24A",
+    "High Stress" = "#C25B4A"
+  )
+
+  hub_stress_label <- function(x) {
+    case_when(
+      is.na(x) ~ "Normal",
+      x > 85 ~ "High Stress",
+      x >= 70 ~ "Medium Stress",
+      TRUE ~ "Normal"
+    )
+  }
+
+  stress_tag_style <- function(label) {
+    switch(
+      label,
+      "High Stress" = "background:#FCE9E6;color:#9E3126;border:1px solid #F5CDC7;",
+      "Medium Stress" = "background:#FFF4DF;color:#9A6A08;border:1px solid #F1D9A6;",
+      "Normal" = "background:#EAF4EC;color:#1E6A2B;border:1px solid #CFE7D3;",
+      "background:#EEF3E2;color:#3B4A2A;border:1px solid #D9E2C3;"
+    )
+  }
+
   window_days <- reactive({
     raw_input <- input$wh_time_range
     raw <- as.character(if (is.null(raw_input)) "90" else raw_input)
@@ -53,14 +78,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       arrange(desc(throughput)) %>%
       slice_head(n = top_n()) %>%
       mutate(
-        warehouse = paste(destination, "Hub"),
+        hub = paste(destination, "Hub"),
+        warehouse = hub,
         utilization = pmin(98, 45 + safe_rescale(throughput, c(10, 40)) + delay_rate * 25),
         predicted_utilization = pmin(99, utilization + safe_rescale(avg_risk, c(2, 10))),
-        stress_level = case_when(
-          predicted_utilization >= 85 ~ "High",
-          predicted_utilization >= 70 ~ "Medium",
-          TRUE ~ "Low"
-        )
+        utilization_band = hub_stress_label(utilization),
+        stress_level = hub_stress_label(predicted_utilization)
       )
   })
 
@@ -155,12 +178,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
           TRUE ~ "Low"
         ),
         `Recommended Action` = case_when(
-          Severity == "High" ~ "Re-route + safety stock",
-          Severity == "Medium" ~ "Carrier escalation",
+          `Delay Rate` > 0.30 ~ "Re-route + build safety stock",
+          `Delay Rate` > 0.25 ~ "Escalate carrier + monitor hub capacity",
           TRUE ~ "Monitor"
         )
       ) %>%
-      arrange(factor(Severity, levels = c("High", "Medium", "Low")), desc(`Delay Rate`), desc(`Avg Risk`))
+      arrange(desc(`Delay Rate`), desc(`Avg Risk`), desc(Shipments))
   }
 
   kpi_metrics <- reactive({
@@ -173,7 +196,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     reliability <- 1 - delay_rate
     if (!is.finite(reliability)) reliability <- 0
 
-    high_stress <- sum(wh$stress_level == "High", na.rm = TRUE)
+    high_stress <- sum(wh$stress_level == "High Stress", na.rm = TRUE)
     if (!is.finite(high_stress)) high_stress <- 0
 
     list(
@@ -201,7 +224,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
   output$wh_kpi_high_stress <- renderUI({
     m <- kpi_metrics()
-    kpi_card("High Stress Warehouses", comma(m$high_stress), "Predicted utilization >= 85%", "warehouse")
+    kpi_card("High Stress Hubs", comma(m$high_stress), "Predicted utilization > 85%", "warehouse")
   })
 
   output$wh_filter_state <- renderUI({
@@ -215,7 +238,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         paste0(
           "<strong>Applied:</strong> ",
           window_label(),
-          " | Top Warehouses=", top_n(),
+          " | Top Hubs=", top_n(),
           " | Min Route Shipments=", min_route_shipments(),
           " | C/D rows=", nrow(d),
           " | C/D range=",
@@ -230,46 +253,49 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
   output$warehouse_utilization_plot <- renderChart({
     d <- warehouse_base() %>%
       mutate(
-        warehouse = as.character(warehouse),
+        hub = as.character(hub),
         utilization = as.numeric(utilization),
         predicted_utilization = as.numeric(predicted_utilization),
         shipments = as.numeric(shipments),
-        stress_level = as.character(stress_level)
+        utilization_band = as.character(utilization_band)
       ) %>%
-      filter(!is.na(warehouse), nzchar(warehouse), !is.na(utilization)) %>%
+      filter(!is.na(hub), nzchar(hub), !is.na(utilization)) %>%
       arrange(desc(utilization)) %>%
-      distinct(warehouse, .keep_all = TRUE)
+      distinct(hub, .keep_all = TRUE)
 
-    validate(need(nrow(d) > 0, "No warehouse data for current filters."))
+    validate(need(nrow(d) > 0, "No hub data for current filters."))
 
     d <- d %>%
       mutate(
-        warehouse = forcats::fct_reorder(factor(warehouse), utilization, .na_rm = TRUE)
+        hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE)
       )
 
     p <- ggplot(
       d,
       aes(
-        x = warehouse,
+        x = hub,
         y = utilization,
-        fill = stress_level,
+        fill = utilization_band,
         text = paste(
-          warehouse,
+          hub,
           "<br>Utilization:", round(utilization, 1), "%",
           "<br>Predicted:", round(predicted_utilization, 1), "%",
+          "<br>Stress:", utilization_band,
           "<br>Shipments:", comma(shipments)
         )
       )
     ) +
-      geom_col(width = 0.65) +
+      geom_col(width = 0.48) +
       geom_hline(yintercept = 85, color = "#9E3126", linetype = "dashed", linewidth = 0.8) +
       coord_flip() +
-      scale_fill_manual(values = RISK_COLORS) +
-      labs(x = NULL, y = "Utilization (%)", fill = "Stress") +
-      theme_minimal(base_size = 13) +
+      scale_fill_manual(values = stress_palette, breaks = c("High Stress", "Medium Stress", "Normal")) +
+      labs(x = NULL, y = "Utilization (%)", fill = NULL) +
+      theme_minimal(base_size = 11) +
       theme(
         panel.grid.minor = element_blank(),
-        panel.grid.major.y = element_blank()
+        panel.grid.major.y = element_blank(),
+        legend.position = "bottom",
+        legend.text = element_text(size = 10)
       )
 
     finalize_chart(p, tooltip = "text")
@@ -277,8 +303,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
   output$capacity_stress_cards <- renderUI({
     d <- warehouse_base() %>%
-      arrange(desc(predicted_utilization)) %>%
-      slice_head(n = 3)
+      arrange(desc(predicted_utilization))
 
     if (nrow(d) == 0) {
       return(div(class = "placeholder-note", p("No stress-card data for current filters.")))
@@ -287,72 +312,95 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     tagList(
       lapply(seq_len(nrow(d)), function(i) {
         row <- d[i, ]
+        gap_vs_threshold <- ifelse(is.finite(row$predicted_utilization), sprintf("%+.1f%%", row$predicted_utilization - 85), "NA")
         div(
-          class = "stress-card",
-          div(class = "stress-title", paste0(row$warehouse, " Capacity Stress")),
+          class = "stress-card hub-stress-card",
+          div(class = "stress-title", row$hub),
           div(class = "stress-value", paste0(round(row$predicted_utilization, 1), "%")),
-        div(
-          class = "stress-title",
-          paste0(
-            "Predicted stress: ", row$stress_level,
-            " | Current Utilization: ", percent(row$utilization / 100, accuracy = 0.1),
-            " | Delay Rate: ", percent(row$delay_rate, accuracy = 0.1),
-            " | Gap vs 85%: ", ifelse(is.finite(row$predicted_utilization), sprintf("%+.1f%%", row$predicted_utilization - 85), "NA"),
-            " | Scope: ", window_label()
+          div(
+            class = "hub-metric-row",
+            div(
+              class = "hub-metric",
+              div(class = "hub-metric-label", "Current Utilization"),
+              div(class = "hub-metric-value", percent(row$utilization / 100, accuracy = 0.1))
+            ),
+            div(
+              class = "hub-metric",
+              div(class = "hub-metric-label", "Delay Rate"),
+              div(class = "hub-metric-value", percent(row$delay_rate, accuracy = 0.1))
+            ),
+            div(
+              class = "hub-metric",
+              div(class = "hub-metric-label", "Gap vs Threshold"),
+              div(class = "hub-metric-value", gap_vs_threshold)
+            )
+          ),
+          div(
+            class = "hub-stress-tag",
+            style = stress_tag_style(row$stress_level),
+            row$stress_level
           )
         )
-      )
-    })
+      })
     )
   })
 
   output$route_reliability_trend <- renderChart({
-    d <- historical_for_charts() %>%
-      mutate(month = floor_date(departure_dt, unit = "month")) %>%
-      group_by(month) %>%
+    d <- historical_filtered() %>%
+      mutate(route = if_else(is.na(route) | !nzchar(route), paste(origin, destination, sep = " \u2192 "), route)) %>%
+      group_by(route) %>%
       summarise(
-        reliability = 1 - mean(delay_flag == "Delayed", na.rm = TRUE),
+        shipments = n(),
+        delay_rate = mean(delay_flag == "Delayed", na.rm = TRUE),
+        reliability = 1 - delay_rate,
         avg_risk = mean(risk_score, na.rm = TRUE),
         .groups = "drop"
-      )
+      ) %>%
+      filter(shipments >= min_route_shipments()) %>%
+      arrange(desc(shipments)) %>%
+      slice_head(n = max(8, top_n()))
 
-    validate(need(nrow(d) > 0, "No reliability trend data for current filters."))
+    validate(need(nrow(d) > 0, "No route reliability data for current filters."))
 
     p <- ggplot(
       d,
       aes(
-        x = month,
+        x = shipments,
         y = reliability,
-        group = 1,
+        color = delay_rate,
         text = paste(
-          format(month, "%b %Y"),
-          "<br>Reliability:", percent(reliability, accuracy = 0.1),
-          "<br>Avg risk:", round(avg_risk, 2)
+          "Route:", route,
+          "<br>Shipment Count:", comma(shipments),
+          "<br>Delay Rate:", percent(delay_rate, accuracy = 0.1),
+          "<br>Route Reliability:", percent(reliability, accuracy = 0.1),
+          "<br>Average Risk Score:", round(avg_risk, 2)
         )
       )
     ) +
-      geom_point(color = "#6E7E31", size = 2.2) +
-      scale_y_continuous(labels = percent_format()) +
-      labs(x = NULL, y = "Reliability") +
+      geom_point(size = 3.4, alpha = 0.8) +
+      scale_color_gradient(low = "#8FA85E", high = "#C25B4A", guide = "none") +
+      scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
+      labs(x = "Shipment Volume", y = "Route Reliability (%)") +
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
-
-    if (nrow(d) > 1) {
-      p <- p + geom_line(color = "#6E7E31", linewidth = 1.1)
-    }
 
     finalize_chart(p, tooltip = "text")
   })
 
   output$delay_trend_plot <- renderChart({
-    d <- historical_for_charts() %>%
+    d <- historical_filtered() %>%
       mutate(week = floor_date(departure_dt, unit = "week")) %>%
       group_by(week) %>%
       summarise(
         delay_rate = mean(delay_flag == "Delayed", na.rm = TRUE),
         shipments = n(),
         .groups = "drop"
-      )
+      ) %>%
+      arrange(week)
+
+    if (nrow(d) > 12) {
+      d <- tail(d, 12)
+    }
 
     validate(need(nrow(d) > 0, "No delay trend data for current filters."))
 
@@ -369,14 +417,15 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         )
       )
     ) +
-      geom_point(color = "#C6473B", size = 1.9) +
-      scale_y_continuous(labels = percent_format()) +
-      labs(x = NULL, y = "Delay Rate") +
+      geom_line(color = "#C6473B", linewidth = 1.05) +
+      geom_point(color = "#C6473B", size = 2) +
+      scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1)) +
+      labs(x = "Week", y = "Delay Rate (%)") +
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
 
-    if (nrow(d) > 1) {
-      p <- p + geom_line(color = "#C6473B", linewidth = 1.1)
+    if (nrow(d) >= 4) {
+      p <- p + geom_smooth(method = "loess", se = FALSE, color = "#9E3126", linetype = "dashed", linewidth = 0.9)
     }
 
     finalize_chart(p, tooltip = "text")
@@ -406,10 +455,10 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       left_join(prev_tbl, by = "route") %>%
       mutate(
         `Rank Delta` = case_when(
-          is.na(prev_rank) ~ "New",
-          prev_rank > curr_rank ~ paste0("↑ ", prev_rank - curr_rank),
-          prev_rank < curr_rank ~ paste0("↓ ", curr_rank - prev_rank),
-          TRUE ~ "→ 0"
+          is.na(prev_rank) ~ "<span style='color:#6B7280;'>&bull; New</span>",
+          prev_rank > curr_rank ~ paste0("<span style='color:#1E6A2B;'>&uarr; ", prev_rank - curr_rank, "</span>"),
+          prev_rank < curr_rank ~ paste0("<span style='color:#9E3126;'>&darr; ", curr_rank - prev_rank, "</span>"),
+          TRUE ~ "<span style='color:#6B7280;'>&rarr; 0</span>"
         )
       ) %>%
       select(route, `Rank Delta`, Shipments, `Delay Rate`, `Avg Risk`, `Avg Exposure`, `Trend (MoM)`, Severity, `Recommended Action`) %>%
@@ -420,29 +469,40 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     d <- route_leaderboard_data()
 
     validate(need(nrow(d) > 0, "No route leaderboard rows for current filters."))
+    top_route <- d$route[[1]]
 
     datatable(
       d,
       rownames = FALSE,
+      escape = FALSE,
       selection = list(mode = "single", target = "row", selected = 1),
-      options = list(dom = "tip", ordering = FALSE, pageLength = 10)
+      options = list(
+        dom = "tip",
+        ordering = TRUE,
+        order = list(list(3, "desc")),
+        pageLength = 10
+      )
     ) %>%
       formatPercentage("Delay Rate", digits = 1) %>%
       formatRound("Avg Risk", digits = 2) %>%
       formatCurrency("Avg Exposure", currency = "$", digits = 0) %>%
       formatStyle(
-        "Rank Delta",
-        color = styleEqual(
-          c("New", "→ 0"),
-          c("#314254", "#314254")
-        )
-      ) %>%
-      formatStyle(
         "Severity",
         backgroundColor = styleEqual(
           c("High", "Medium", "Low"),
           c("#FCE9E6", "#FFF4DF", "#EAF4EC")
-        )
+        ),
+        color = styleEqual(
+          c("High", "Medium", "Low"),
+          c("#9E3126", "#9A6A08", "#1E6A2B")
+        ),
+        fontWeight = "700"
+      ) %>%
+      formatStyle(
+        "route",
+        target = "row",
+        backgroundColor = styleEqual(top_route, "#FDECEA"),
+        fontWeight = styleEqual(top_route, "700")
       )
   })
 
@@ -480,14 +540,19 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
   route_drilldown_summary <- reactive({
     d <- route_drilldown_weekly()
     r <- selected_route()
+    route_destination <- trimws(sub("^.*(\u2192|->)", "", r))
+    hub_row <- warehouse_base() %>%
+      filter(destination == route_destination) %>%
+      slice_head(n = 1)
+    hub_utilization <- if (nrow(hub_row) > 0) as.numeric(hub_row$utilization[[1]]) else NA_real_
+
     if (nrow(d) == 0) {
       return(list(
         route = r,
-        trend_text = "No data",
-        avg_exposure = NA_real_,
+        trend_summary = "No trend data available for current filters.",
+        risk_summary = "No route-level risk summary available.",
         action_text = "No action available.",
-        current_delay = NA_real_,
-        delta = NA_real_
+        avg_exposure = NA_real_
       ))
     }
 
@@ -497,7 +562,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     avg_risk <- mean(d$avg_risk, na.rm = TRUE)
     avg_exposure <- mean(d$avg_exposure, na.rm = TRUE)
 
-    trend_text <- if (is.finite(delta)) {
+    trend_summary <- if (is.finite(delta)) {
       if (delta > 0.03) paste0("Worsening by ", percent(delta, accuracy = 0.1))
       else if (delta < -0.03) paste0("Improving by ", percent(abs(delta), accuracy = 0.1))
       else "Stable"
@@ -505,34 +570,44 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       "Insufficient prior weeks"
     }
 
-    action_text <- if (is.finite(current_delay) && (current_delay >= 0.35 || avg_risk >= 0.70)) {
-      "Immediate re-route and temporary safety-stock increase."
-    } else if (is.finite(current_delay) && (current_delay >= 0.20 || avg_risk >= 0.50)) {
-      "Escalate carrier performance and tighten ETA monitoring."
+    risk_summary <- paste0(
+      "Delay Rate (4w avg): ", percent(current_delay, accuracy = 0.1),
+      " | Avg Risk Score: ", number(avg_risk, accuracy = 0.01),
+      " | Avg Exposure: ", dollar(avg_exposure, accuracy = 1),
+      " | Hub Utilization: ", ifelse(is.finite(hub_utilization), percent(hub_utilization / 100, accuracy = 0.1), "NA")
+    )
+
+    action_text <- if (is.finite(current_delay) && current_delay > 0.30 && is.finite(hub_utilization) && hub_utilization > 85) {
+      "Re-route shipments and increase safety stock."
+    } else if (is.finite(current_delay) && current_delay > 0.25) {
+      "Escalate carrier and monitor capacity."
     } else {
-      "Keep monitoring; no urgent intervention needed."
+      "Maintain current routing and continue monitoring."
     }
 
     list(
       route = r,
-      trend_text = trend_text,
+      trend_summary = trend_summary,
+      risk_summary = risk_summary,
       avg_exposure = avg_exposure,
-      action_text = action_text,
-      current_delay = current_delay,
-      delta = delta
+      action_text = action_text
     )
   })
 
   output$route_drilldown_trend <- renderChart({
     d <- route_drilldown_weekly()
     r <- selected_route()
+    metric <- ifelse(isTruthy(input$wh_route_metric), input$wh_route_metric, "delay_rate")
+    y_col <- if (metric == "avg_risk") "avg_risk" else "delay_rate"
+    y_label <- if (metric == "avg_risk") "Risk Score" else "Delay Rate (%)"
+    y_color <- if (metric == "avg_risk") "#6E7E31" else "#C6473B"
     validate(need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
 
     p <- ggplot(
       d,
       aes(
         x = week,
-        y = delay_rate,
+        y = .data[[y_col]],
         group = 1,
         text = paste(
           r,
@@ -543,12 +618,17 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         )
       )
     ) +
-      geom_line(color = "#C6473B", linewidth = 1.1) +
-      geom_point(color = "#C6473B", size = 2) +
-      scale_y_continuous(labels = percent_format()) +
-      labs(x = NULL, y = "Delay Rate", subtitle = r) +
+      geom_line(color = y_color, linewidth = 1.1) +
+      geom_point(color = y_color, size = 2) +
+      labs(x = "Week", y = y_label, subtitle = r) +
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
+
+    if (metric == "delay_rate") {
+      p <- p + scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 1))
+    } else {
+      p <- p + scale_y_continuous(labels = number_format(accuracy = 0.01))
+    }
 
     finalize_chart(p, tooltip = "text")
   })
@@ -562,8 +642,8 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     tagList(
       div(class = "stress-card", div(class = "stress-title", "Selected Route"), div(class = "stress-value", s$route)),
-      div(class = "stress-card", div(class = "stress-title", "4-Week Delay Trend"), div(class = "stress-value", s$trend_text)),
-      div(class = "stress-card", div(class = "stress-title", "Average Financial Exposure"), div(class = "stress-value", dollar(s$avg_exposure, accuracy = 1))),
+      div(class = "stress-card", div(class = "stress-title", "Trend Summary"), div(class = "stress-value", s$trend_summary)),
+      div(class = "stress-card", div(class = "stress-title", "Risk Summary"), div(class = "stress-value", s$risk_summary)),
       div(class = "stress-card", div(class = "stress-title", "Recommended Action"), div(class = "stress-value", s$action_text))
     )
   })
@@ -585,7 +665,8 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       s <- route_drilldown_summary()
       lines <- c(
         paste("Selected Route:", s$route),
-        paste("4-Week Delay Trend:", s$trend_text),
+        paste("Trend Summary:", s$trend_summary),
+        paste("Risk Summary:", s$risk_summary),
         paste("Average Financial Exposure:", dollar(s$avg_exposure, accuracy = 1)),
         paste("Recommended Action:", s$action_text)
       )

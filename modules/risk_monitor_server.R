@@ -224,6 +224,7 @@ risk_monitor_server <- function(input, output, session, shipments) {
       risk_table_data(),
       rownames = FALSE,
       escape = FALSE,
+      class = "stripe hover compact",
       selection = "single",
       options = list(pageLength = 12, autoWidth = TRUE, ordering = FALSE)
     ) %>%

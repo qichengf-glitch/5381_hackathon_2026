@@ -2,9 +2,32 @@
 
 risk_monitor_ui <- function() {
   div(
-    class = "tab-stack",
+    class = "tab-stack risk-tab",
     tags$style(HTML("
       .rm-preset-group .btn { transition: none !important; }
+      .risk-olive-header > .card-header {
+        background: #6E7E31 !important;
+        color: #FFFFFF !important;
+        border-bottom: 1px solid #5D6A2B !important;
+      }
+      .risk-olive-header > .card-header .card-title,
+      .risk-olive-header > .card-header .bslib-card-title {
+        color: #FFFFFF !important;
+      }
+      .risk-tab .rr-card,
+      .risk-tab .kpi-card {
+        transition: transform 0.16s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+      }
+      .risk-tab .rr-card:hover,
+      .risk-tab .kpi-card:hover {
+        transform: translateY(-2px);
+        border-color: #7F9337 !important;
+        box-shadow: 0 8px 18px rgba(110, 126, 49, 0.20), 0 2px 6px rgba(17, 24, 39, 0.08);
+      }
+      .risk-tab .rr-card:active,
+      .risk-tab .kpi-card:active {
+        transform: translateY(-1px);
+      }
     ")),
     tags$script(HTML("
       $(document).on('click', '.rm-preset-group .rm-preset-btn', function() {
@@ -14,7 +37,7 @@ risk_monitor_ui <- function() {
       });
     ")),
     card(
-      class = "rr-card",
+      class = "rr-card risk-olive-header",
       card_header("Operational Filters"),
       div(
         class = "rm-preset-group",
@@ -63,7 +86,7 @@ risk_monitor_ui <- function() {
       uiOutput("rm_kpi_delay_rate")
     ),
     card(
-      class = "rr-card",
+      class = "rr-card risk-olive-header",
       card_header("Shipment Risk Queue"),
       layout_columns(
         col_widths = c(8, 4),
@@ -78,12 +101,12 @@ risk_monitor_ui <- function() {
     layout_columns(
       col_widths = c(4, 8),
       card(
-        class = "rr-card",
+        class = "rr-card risk-olive-header",
         card_header("Shipment Detail"),
         uiOutput("shipment_detail_card")
       ),
       card(
-        class = "rr-card",
+        class = "rr-card risk-olive-header",
         card_header("Risk Driver Breakdown"),
         chartOutput("risk_driver_plot", height = 300)
       )

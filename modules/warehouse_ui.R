@@ -3,6 +3,52 @@
 warehouse_ui <- function() {
   div(
     class = "tab-stack",
+    tags$style(HTML("
+      .hub-stress-card {
+        margin-bottom: 0.38rem;
+        padding: 0.4rem 0.5rem !important;
+        border-radius: 9px;
+      }
+      .capacity-scroll {
+        max-height: 270px;
+        overflow-y: auto;
+        padding-right: 0.2rem;
+      }
+      .hub-metric-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.3rem;
+        margin-top: 0.28rem;
+      }
+      .hub-metric {
+        border: 1px solid #E7EAEE;
+        border-radius: 8px;
+        padding: 0.2rem 0.3rem;
+        background: #FFFFFF;
+      }
+      .hub-metric-label {
+        font-size: 0.62rem;
+        color: #6B7280;
+        text-transform: uppercase;
+        letter-spacing: 0.2px;
+      }
+      .hub-metric-value {
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-top: 0.08rem;
+        color: #1F2933;
+      }
+      .hub-stress-tag {
+        display: inline-block;
+        margin-top: 0.28rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.63rem;
+        font-weight: 700;
+      }
+      .hub-stress-card .stress-title { font-size: 0.72rem; }
+      .hub-stress-card .stress-value { font-size: 0.98rem; margin-top: 0.08rem; }
+    ")),
     card(
       class = "rr-card",
       card_header("Filters"),
@@ -17,7 +63,7 @@ warehouse_ui <- function() {
         ),
         sliderInput(
           "wh_top_n",
-          "Top Warehouses",
+          "Top Hubs",
           min = 3, max = 12, value = 6, step = 1
         ),
         numericInput(
@@ -40,25 +86,25 @@ warehouse_ui <- function() {
       col_widths = c(7, 5),
       card(
         class = "rr-card",
-        card_header("A. Warehouse Utilization"),
-        chartOutput("warehouse_utilization_plot", height = 310)
+        card_header("A. Regional Hub Utilization"),
+        chartOutput("warehouse_utilization_plot", height = 245)
       ),
       card(
         class = "rr-card",
         card_header("B. Predicted Capacity Stress"),
-        uiOutput("capacity_stress_cards")
+        div(class = "capacity-scroll", uiOutput("capacity_stress_cards"))
       )
     ),
     layout_columns(
       col_widths = c(6, 6),
       card(
         class = "rr-card",
-        card_header("C. Historical Route Reliability"),
+        card_header("C. Top Routes Reliability Scatter"),
         chartOutput("route_reliability_trend", height = 300)
       ),
       card(
         class = "rr-card",
-        card_header("D. Delay Trend Over Time"),
+        card_header("D. Network Delay Trend (Last 12 Weeks)"),
         chartOutput("delay_trend_plot", height = 300)
       )
     ),
@@ -72,6 +118,13 @@ warehouse_ui <- function() {
       card(
         class = "rr-card",
         card_header("F. Selected Route Trend (Last 12 Weeks)"),
+        radioButtons(
+          "wh_route_metric",
+          NULL,
+          choices = c("Delay Rate" = "delay_rate", "Risk Score" = "avg_risk"),
+          selected = "delay_rate",
+          inline = TRUE
+        ),
         chartOutput("route_drilldown_trend", height = 290)
       ),
       card(
