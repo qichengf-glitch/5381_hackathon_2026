@@ -120,7 +120,7 @@ supabase_key <- function() {
   Sys.getenv("SUPABASE_ANON_KEY")
 }
 
-fetch_supabase_table <- function(table_name, limit = 50000) {
+fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     stop("Package 'httr2' is required for Supabase integration.")
   }
@@ -134,18 +134,41 @@ fetch_supabase_table <- function(table_name, limit = 50000) {
     stop("SUPABASE_URL and key are required.")
   }
 
-  req <- httr2::request(sprintf("%s/rest/v1/%s", base_url, table_name)) %>%
-    httr2::req_url_query(select = "*", limit = limit) %>%
-    httr2::req_headers(
-      apikey = key,
-      Authorization = paste("Bearer", key)
-    ) %>%
-    httr2::req_timeout(seconds = 30)
+  if (!is.numeric(page_size) || page_size <= 0) page_size <- 1000
+  if (!is.numeric(max_rows) || max_rows <= 0) max_rows <- 200000
 
-  resp <- httr2::req_perform(req)
-  txt <- httr2::resp_body_string(resp)
-  jsonlite::fromJSON(txt, flatten = TRUE) %>%
-    tibble::as_tibble()
+  batches <- list()
+  offset <- 0
+
+  repeat {
+    upper <- offset + page_size - 1
+
+    req <- httr2::request(sprintf("%s/rest/v1/%s", base_url, table_name)) %>%
+      httr2::req_url_query(select = "*") %>%
+      httr2::req_headers(
+        apikey = key,
+        Authorization = paste("Bearer", key),
+        Range = paste0(offset, "-", upper),
+        `Range-Unit` = "items"
+      ) %>%
+      httr2::req_timeout(seconds = 30)
+
+    resp <- httr2::req_perform(req)
+    txt <- httr2::resp_body_string(resp)
+    batch <- jsonlite::fromJSON(txt, flatten = TRUE) %>%
+      tibble::as_tibble()
+
+    n_batch <- nrow(batch)
+    if (n_batch == 0) break
+
+    batches[[length(batches) + 1]] <- batch
+    offset <- offset + n_batch
+
+    if (n_batch < page_size || offset >= max_rows) break
+  }
+
+  if (length(batches) == 0) return(tibble::tibble())
+  dplyr::bind_rows(batches)
 }
 
 clean_shipment_data <- function(raw) {

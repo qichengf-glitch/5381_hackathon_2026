@@ -44,16 +44,17 @@ ui_global <- function() {
           }
 
           .rr-card, .kpi-card {
-            border: 1px solid var(--border-soft);
+            border: 1px solid var(--olive);
             border-radius: 14px;
             box-shadow: 0 2px 8px rgba(17, 24, 39, 0.04);
-            background: #FFFFFF;
+            background: var(--olive-soft);
           }
 
           .rr-card > .card-header {
-            background: #FFFFFF;
-            border-bottom: 1px solid #F1F3F5;
+            background: var(--olive-soft);
+            border-bottom: 1px solid var(--olive);
             font-weight: 600;
+            color: var(--olive);
           }
 
           .kpi-card {
