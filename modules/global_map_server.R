@@ -385,12 +385,14 @@ global_map_server <- function(input, output, session, shipments) {
 
   # ── Layer visibility toggles ────────────────────────────────────
   observeEvent(input$map_show_routes, {
+    req(HAS_LEAFLET)
     proxy <- leafletProxy("route_map")
     if (isTRUE(input$map_show_routes)) proxy %>% showGroup("routes")
     else proxy %>% hideGroup("routes")
   }, ignoreInit = TRUE)
 
   observeEvent(input$map_show_markers, {
+    req(HAS_LEAFLET)
     proxy <- leafletProxy("route_map")
     if (isTRUE(input$map_show_markers)) proxy %>% showGroup("markers")
     else proxy %>% hideGroup("markers")
@@ -398,6 +400,7 @@ global_map_server <- function(input, output, session, shipments) {
 
   # ── Vehicle markers via leafletProxy ────────────────────────────
   observe({
+    req(HAS_LEAFLET)
     vd <- vehicles_data()
     proxy <- leafletProxy("route_map")
     proxy %>% clearGroup("vehicles")

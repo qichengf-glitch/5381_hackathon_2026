@@ -111,3 +111,4 @@ Notes:
 
 - Optional packages: `plotly`, `leaflet` (app degrades gracefully if unavailable)
 - Local cleaning helpers still exist in `utils.R` (e.g., `load_shipment_data_local()`), but main app flow is Supabase-first in this version.
+- Docker image intentionally does not force-install `leaflet` geospatial system dependencies; Global Map falls back to non-leaflet rendering when `leaflet` is unavailable.

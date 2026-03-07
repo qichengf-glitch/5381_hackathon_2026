@@ -5,7 +5,7 @@ WORKDIR /app
 # Install required R packages for this app
 RUN R -e "install.packages(c( \
   'bslib','DT','readxl','scales','lubridate','glue', \
-  'plotly','leaflet','httr2','jsonlite','dotenv' \
+  'plotly','httr2','jsonlite','dotenv' \
 ), repos='https://cloud.r-project.org')"
 
 COPY . /app
