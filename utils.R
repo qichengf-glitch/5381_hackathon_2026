@@ -106,6 +106,11 @@ load_supabase_env <- function() {
 }
 
 supabase_ready <- function() {
+  use_supabase <- tolower(trimws(Sys.getenv("USE_SUPABASE", "true")))
+  if (use_supabase %in% c("false", "0", "no", "off")) {
+    return(FALSE)
+  }
+
   load_supabase_env()
   url_ready <- nzchar(Sys.getenv("SUPABASE_URL"))
   key_ready <- nzchar(Sys.getenv("SUPABASE_SERVICE_ROLE_KEY")) || nzchar(Sys.getenv("SUPABASE_ANON_KEY"))
@@ -151,7 +156,7 @@ fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000
         apikey = key,
         Authorization = paste("Bearer", key)
       ) %>%
-      httr2::req_timeout(seconds = 30)
+      httr2::req_timeout(seconds = 8)
 
     resp <- httr2::req_perform(req)
     txt <- httr2::resp_body_string(resp)
