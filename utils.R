@@ -1,5 +1,9 @@
 # Utility Functions
 
+# Check for optional packages
+HAS_PLOTLY <- requireNamespace("plotly", quietly = TRUE)
+HAS_LEAFLET <- requireNamespace("leaflet", quietly = TRUE)
+
 safe_rescale <- function(x, to = c(0, 1)) {
   x <- as.numeric(x)
   if (length(x) == 0 || all(is.na(x))) {
@@ -32,17 +36,68 @@ pick_data_source <- function(path = DEFAULT_DATA_PATH) {
   )
 }
 
-load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
-  source_file <- pick_data_source(path)
-  ext <- tolower(tools::file_ext(source_file))
-
-  raw <- if (ext %in% c("xlsx", "xls")) {
-    readxl::read_excel(source_file)
-  } else if (ext == "csv") {
-    readr::read_csv(source_file, show_col_types = FALSE)
-  } else {
-    stop("Unsupported file type: ", ext, ". Use .xlsx/.xls or .csv")
+load_supabase_env <- function() {
+  if (!requireNamespace("dotenv", quietly = TRUE)) {
+    return(invisible(FALSE))
   }
+
+  env_candidates <- c(".env", "supabase_setup/.env")
+  env_loaded <- FALSE
+  for (env_path in env_candidates) {
+    if (file.exists(env_path)) {
+      dotenv::load_dot_env(env_path, override = TRUE)
+      env_loaded <- TRUE
+    }
+  }
+
+  invisible(env_loaded)
+}
+
+supabase_ready <- function() {
+  load_supabase_env()
+  url_ready <- nzchar(Sys.getenv("SUPABASE_URL"))
+  key_ready <- nzchar(Sys.getenv("SUPABASE_SERVICE_ROLE_KEY")) || nzchar(Sys.getenv("SUPABASE_ANON_KEY"))
+  url_ready && key_ready
+}
+
+supabase_key <- function() {
+  service_key <- Sys.getenv("SUPABASE_SERVICE_ROLE_KEY")
+  if (nzchar(service_key)) {
+    return(service_key)
+  }
+  Sys.getenv("SUPABASE_ANON_KEY")
+}
+
+fetch_supabase_table <- function(table_name, limit = 20000) {
+  if (!requireNamespace("httr2", quietly = TRUE)) {
+    stop("Package 'httr2' is required for Supabase integration.")
+  }
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    stop("Package 'jsonlite' is required for Supabase integration.")
+  }
+
+  base_url <- Sys.getenv("SUPABASE_URL")
+  key <- supabase_key()
+  if (!nzchar(base_url) || !nzchar(key)) {
+    stop("SUPABASE_URL and key are required.")
+  }
+
+  req <- httr2::request(sprintf("%s/rest/v1/%s", base_url, table_name)) %>%
+    httr2::req_url_query(select = "*", limit = limit) %>%
+    httr2::req_headers(
+      apikey = key,
+      Authorization = paste("Bearer", key)
+    ) %>%
+    httr2::req_timeout(seconds = 10)
+
+  resp <- httr2::req_perform(req)
+  txt <- httr2::resp_body_string(resp)
+  jsonlite::fromJSON(txt, flatten = TRUE) %>%
+    tibble::as_tibble()
+}
+
+clean_shipment_data <- function(raw) {
+  raw <- tibble::as_tibble(raw)
 
   missing_cols <- setdiff(required_cols, names(raw))
   if (length(missing_cols) > 0) {
@@ -94,6 +149,44 @@ load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
   cleaned %>%
     left_join(origin_coords, by = "origin") %>%
     left_join(destination_coords, by = "destination")
+}
+
+load_shipment_data_local <- function(path = DEFAULT_DATA_PATH) {
+  source_file <- pick_data_source(path)
+  ext <- tolower(tools::file_ext(source_file))
+
+  raw <- if (ext %in% c("xlsx", "xls")) {
+    readxl::read_excel(source_file)
+  } else if (ext == "csv") {
+    readr::read_csv(source_file, show_col_types = FALSE)
+  } else {
+    stop("Unsupported file type: ", ext, ". Use .xlsx/.xls or .csv")
+  }
+
+  clean_shipment_data(raw)
+}
+
+load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
+  use_supabase <- tolower(Sys.getenv("USE_SUPABASE", "true"))
+
+  if (use_supabase != "false" && supabase_ready()) {
+    supabase_result <- tryCatch(
+      {
+        raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
+        clean_shipment_data(raw)
+      },
+      error = function(e) {
+        message("Supabase fetch failed, fallback to local file: ", e$message)
+        NULL
+      }
+    )
+
+    if (!is.null(supabase_result) && nrow(supabase_result) > 0) {
+      return(supabase_result)
+    }
+  }
+
+  load_shipment_data_local(path)
 }
 
 format_currency <- label_dollar(accuracy = 1)

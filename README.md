@@ -53,6 +53,11 @@ Or from the command line:
 Rscript -e "shiny::runApp('app.R')"
 ```
 
-## Data File
+## Data Source Priority
 
-The application expects `Final_shipment.xlsx` in the project directory or at the path specified in `constants.R` (`DEFAULT_DATA_PATH`).
+The app now loads data in this order:
+
+1. Supabase table `final_shipment` (if `.env` or `supabase_setup/.env` is configured)
+2. Local `Final_shipment.xlsx` (fallback)
+
+Set `USE_SUPABASE=false` in environment to force local file mode.

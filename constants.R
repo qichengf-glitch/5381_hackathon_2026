@@ -1,6 +1,9 @@
 # Constants and Configuration
 
 DEFAULT_DATA_PATH <- "/Users/qichengfu/Desktop/5381_hackathon/Final_shipment.xlsx"
+SUPABASE_TABLE_FINAL <- "final_shipment"
+SUPABASE_TABLE_HISTORICAL <- "historical_shipments"
+SUPABASE_TABLE_WAREHOUSE <- "warehouse_status_by_cargo"
 
 RISK_COLORS <- c(
   Low = "#2E7D32",

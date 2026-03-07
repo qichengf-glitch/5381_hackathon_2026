@@ -12,19 +12,18 @@ library(glue)
 
 options(bslib.sass.cache = file.path(tempdir(), "bslib-sass-cache"))
 
-HAS_PLOTLY <- requireNamespace("plotly", quietly = TRUE)
+# Load constants and utilities (HAS_PLOTLY and HAS_LEAFLET are defined in utils.R)
+source("constants.R")
+source("utils.R")
+
+# Load optional packages if available
 if (HAS_PLOTLY) {
   library(plotly)
 }
 
-HAS_LEAFLET <- requireNamespace("leaflet", quietly = TRUE)
 if (HAS_LEAFLET) {
   library(leaflet)
 }
-
-# Load constants and utilities
-source("constants.R")
-source("utils.R")
 
 # Load UI modules
 source("ui_global.R")
