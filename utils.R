@@ -226,6 +226,95 @@ clean_shipment_data <- function(raw) {
     left_join(destination_coords, by = "destination")
 }
 
+generate_mock_shipments <- function(n = 1200) {
+  n <- as.integer(n)
+  if (is.na(n) || n < 50) n <- 1200
+
+  set.seed(5381)
+
+  destinations <- setdiff(CITY_COORDS$city, "Shanghai")
+  shipping_method <- sample(c("Truck", "Sea", "Rail", "Air"), n, replace = TRUE, prob = c(0.33, 0.24, 0.24, 0.19))
+  weather_condition <- sample(c("Clear", "Rain", "Fog", "Storm", "Snow"), n, replace = TRUE, prob = c(0.38, 0.24, 0.14, 0.16, 0.08))
+  destination <- sample(destinations, n, replace = TRUE)
+
+  supplier_reliability_score <- pmin(pmax(rnorm(n, mean = 0.78, sd = 0.11), 0.25), 0.99)
+  shipment_value <- round(runif(n, min = 30000, max = 620000), 2)
+  shipping_distance <- round(runif(n, min = 250, max = 12500), 1)
+
+  shipping_risk <- case_when(
+    shipping_method == "Air" ~ 0.34,
+    shipping_method == "Rail" ~ 0.44,
+    shipping_method == "Truck" ~ 0.54,
+    TRUE ~ 0.60
+  ) + rnorm(n, 0, 0.07)
+
+  weather_risk <- case_when(
+    weather_condition == "Clear" ~ 0.22,
+    weather_condition == "Rain" ~ 0.46,
+    weather_condition == "Fog" ~ 0.57,
+    weather_condition == "Storm" ~ 0.73,
+    TRUE ~ 0.80
+  ) + rnorm(n, 0, 0.06)
+
+  distance_risk <- safe_rescale(shipping_distance, to = c(0.16, 0.92)) + rnorm(n, 0, 0.05)
+  supplier_risk <- (1 - supplier_reliability_score) + rnorm(n, 0, 0.04)
+
+  shipping_risk <- pmin(pmax(shipping_risk, 0), 1)
+  weather_risk <- pmin(pmax(weather_risk, 0), 1)
+  distance_risk <- pmin(pmax(distance_risk, 0), 1)
+  supplier_risk <- pmin(pmax(supplier_risk, 0), 1)
+
+  risk_score <- pmin(
+    pmax(
+      0.28 * weather_risk +
+        0.24 * shipping_risk +
+        0.22 * distance_risk +
+        0.26 * supplier_risk +
+        rnorm(n, 0, 0.05),
+      0
+    ),
+    1
+  )
+
+  delayed_prob <- pmin(pmax(0.03 + risk_score * 0.55, 0.03), 0.95)
+  delayed <- runif(n) < delayed_prob
+  delay_flag <- if_else(delayed, "Delayed", "On Time")
+  delay_hours <- if_else(delayed, round(rexp(n, rate = 1 / 8), 1), 0)
+
+  financial_exposure <- round(
+    shipment_value * (0.14 + risk_score * 0.95) * (1 + pmin(delay_hours, 36) / 42),
+    2
+  )
+
+  departure_dt <- Sys.time() - lubridate::days(sample(2:110, n, replace = TRUE)) - lubridate::hours(sample(0:23, n, replace = TRUE))
+  transit_hours <- pmax(6, round(shipping_distance / runif(n, min = 45, max = 760)))
+  expected_arrival_dt <- departure_dt + lubridate::hours(transit_hours)
+  actual_arrival_dt <- expected_arrival_dt + lubridate::dminutes(delay_hours * 60)
+
+  raw <- tibble(
+    origin = "Shanghai",
+    destination = destination,
+    shipping_method = shipping_method,
+    weather_condition = weather_condition,
+    supplier_reliability_score = supplier_reliability_score,
+    shipment_value = shipment_value,
+    shipping_distance = shipping_distance,
+    delay_flag = delay_flag,
+    delay_hours = delay_hours,
+    risk_score = risk_score,
+    financial_exposure = financial_exposure,
+    weather_risk = weather_risk,
+    shipping_risk = shipping_risk,
+    distance_risk = distance_risk,
+    supplier_risk = supplier_risk,
+    departure_time = format(departure_dt, "%m/%d/%Y %H:%M"),
+    expected_arrival_time = format(expected_arrival_dt, "%m/%d/%Y %H:%M"),
+    actual_arrival_time = format(actual_arrival_dt, "%m/%d/%Y %H:%M")
+  )
+
+  clean_shipment_data(raw)
+}
+
 derive_historical_from_shipments <- function(shipments_df) {
   shipments_df %>%
     transmute(
@@ -378,84 +467,120 @@ clean_warehouse_status_data <- function(raw, fallback_shipments = NULL) {
 }
 
 load_shipment_data_local <- function(path = DEFAULT_DATA_PATH) {
-  source_file <- pick_data_source(path)
-  ext <- tolower(tools::file_ext(source_file))
+  tryCatch({
+    source_file <- pick_data_source(path)
+    ext <- tolower(tools::file_ext(source_file))
 
-  raw <- if (ext %in% c("xlsx", "xls")) {
-    readxl::read_excel(source_file)
-  } else if (ext == "csv") {
-    readr::read_csv(source_file, show_col_types = FALSE)
-  } else {
-    stop("Unsupported file type: ", ext, ". Use .xlsx/.xls or .csv")
-  }
+    raw <- if (ext %in% c("xlsx", "xls")) {
+      readxl::read_excel(source_file)
+    } else if (ext == "csv") {
+      readr::read_csv(source_file, show_col_types = FALSE)
+    } else {
+      stop("Unsupported file type: ", ext, ". Use .xlsx/.xls or .csv")
+    }
 
-  clean_shipment_data(raw)
+    clean_shipment_data(raw)
+  }, error = function(e) {
+    warning(
+      "Local shipment file unavailable; using generated demo data. Detail: ",
+      conditionMessage(e),
+      call. = FALSE
+    )
+    generate_mock_shipments()
+  })
 }
 
 load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
-  if (!supabase_ready()) {
-    warning(
-      "Supabase is not configured; falling back to local shipment file.",
-      call. = FALSE
-    )
-    return(load_shipment_data_local(path))
-  }
+  tryCatch({
+    if (!supabase_ready()) {
+      warning(
+        "Supabase is not configured; falling back to local shipment file.",
+        call. = FALSE
+      )
+      return(load_shipment_data_local(path))
+    }
 
-  raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
-  if (nrow(raw) == 0) {
+    raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
+    if (nrow(raw) == 0) {
+      warning(
+        "Supabase final table returned 0 rows; falling back to local shipment file.",
+        call. = FALSE
+      )
+      return(load_shipment_data_local(path))
+    }
+    clean_shipment_data(raw)
+  }, error = function(e) {
     warning(
-      "Supabase final table returned 0 rows; falling back to local shipment file.",
+      "Shipment data load failed; using generated demo data. Detail: ",
+      conditionMessage(e),
       call. = FALSE
     )
-    return(load_shipment_data_local(path))
-  }
-  clean_shipment_data(raw)
+    generate_mock_shipments()
+  })
 }
 
 load_historical_data <- function(base_shipments = NULL) {
-  base_shipments_safe <- if (is.null(base_shipments)) tibble::tibble() else base_shipments
+  base_shipments_safe <- if (is.null(base_shipments)) generate_mock_shipments(300) else base_shipments
 
-  if (!supabase_ready()) {
+  tryCatch({
+    if (!supabase_ready()) {
+      warning(
+        "Supabase is not configured for historical data; using derived local history.",
+        call. = FALSE
+      )
+      return(derive_historical_from_shipments(base_shipments_safe))
+    }
+
+    raw <- fetch_supabase_table(SUPABASE_TABLE_HISTORICAL)
+    res <- clean_historical_data(raw, fallback_shipments = base_shipments_safe)
+    if (nrow(res) == 0) {
+      warning(
+        "Supabase historical table returned no usable rows; using derived local history.",
+        call. = FALSE
+      )
+      return(derive_historical_from_shipments(base_shipments_safe))
+    }
+    res
+  }, error = function(e) {
     warning(
-      "Supabase is not configured for historical data; using derived local history.",
+      "Historical data load failed; using derived history. Detail: ",
+      conditionMessage(e),
       call. = FALSE
     )
-    return(derive_historical_from_shipments(base_shipments_safe))
-  }
-
-  raw <- fetch_supabase_table(SUPABASE_TABLE_HISTORICAL)
-  res <- clean_historical_data(raw, fallback_shipments = base_shipments)
-  if (nrow(res) == 0) {
-    warning(
-      "Supabase historical table returned no usable rows; using derived local history.",
-      call. = FALSE
-    )
-    return(derive_historical_from_shipments(base_shipments_safe))
-  }
-  res
+    derive_historical_from_shipments(base_shipments_safe)
+  })
 }
 
 load_warehouse_status_data <- function(base_shipments = NULL) {
-  base_shipments_safe <- if (is.null(base_shipments)) tibble::tibble() else base_shipments
+  base_shipments_safe <- if (is.null(base_shipments)) generate_mock_shipments(300) else base_shipments
 
-  if (!supabase_ready()) {
+  tryCatch({
+    if (!supabase_ready()) {
+      warning(
+        "Supabase is not configured for warehouse data; using derived local warehouse status.",
+        call. = FALSE
+      )
+      return(derive_warehouse_from_shipments(base_shipments_safe))
+    }
+
+    raw <- fetch_supabase_table(SUPABASE_TABLE_WAREHOUSE)
+    res <- clean_warehouse_status_data(raw, fallback_shipments = base_shipments_safe)
+    if (nrow(res) == 0) {
+      warning(
+        "Supabase warehouse table returned no usable rows; using derived local warehouse status.",
+        call. = FALSE
+      )
+      return(derive_warehouse_from_shipments(base_shipments_safe))
+    }
+    res
+  }, error = function(e) {
     warning(
-      "Supabase is not configured for warehouse data; using derived local warehouse status.",
+      "Warehouse status load failed; using derived warehouse status. Detail: ",
+      conditionMessage(e),
       call. = FALSE
     )
-    return(derive_warehouse_from_shipments(base_shipments_safe))
-  }
-
-  raw <- fetch_supabase_table(SUPABASE_TABLE_WAREHOUSE)
-  res <- clean_warehouse_status_data(raw, fallback_shipments = base_shipments)
-  if (nrow(res) == 0) {
-    warning(
-      "Supabase warehouse table returned no usable rows; using derived local warehouse status.",
-      call. = FALSE
-    )
-    return(derive_warehouse_from_shipments(base_shipments_safe))
-  }
-  res
+    derive_warehouse_from_shipments(base_shipments_safe)
+  })
 }
 
 format_currency <- label_dollar(accuracy = 1)
