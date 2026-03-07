@@ -39,12 +39,30 @@ ui <- ui_global()
 
 # Main Server
 server <- function(input, output, session) {
-  # Load data
-  data_rv <- reactiveVal(load_shipment_data(DEFAULT_DATA_PATH))
+  # Load data from Supabase only
+  data_rv <- reactiveVal(load_shipment_data())
+  historical_rv <- reactiveVal(NULL)
+  warehouse_status_rv <- reactiveVal(NULL)
 
   shipments <- reactive({
     req(data_rv())
     data_rv()
+  })
+
+  observe({
+    base <- shipments()
+    historical_rv(load_historical_data(base_shipments = base))
+    warehouse_status_rv(load_warehouse_status_data(base_shipments = base))
+  })
+
+  historical_shipments <- reactive({
+    req(historical_rv())
+    historical_rv()
+  })
+
+  warehouse_status_by_cargo <- reactive({
+    req(warehouse_status_rv())
+    warehouse_status_rv()
   })
 
   # Load and initialize server modules
@@ -61,7 +79,12 @@ server <- function(input, output, session) {
   financial_server(input, output, session, shipments)
   
   source("modules/warehouse_server.R", local = TRUE)
-  warehouse_base <- warehouse_server(input, output, session, shipments)
+  warehouse_base <- warehouse_server(
+    input, output, session,
+    shipments = shipments,
+    historical_shipments = historical_shipments,
+    warehouse_status_by_cargo = warehouse_status_by_cargo
+  )
   
   source("modules/copilot_server.R", local = TRUE)
   copilot_server(input, output, session, shipments, warehouse_base)

@@ -1,8 +1,35 @@
 # Warehouse & Historical Analytics Page Server Logic
 
-warehouse_server <- function(input, output, session, shipments) {
+warehouse_server <- function(input, output, session, shipments, historical_shipments, warehouse_status_by_cargo) {
   warehouse_base <- reactive({
-    d <- shipments() %>%
+    wh <- warehouse_status_by_cargo()
+
+    if (!is.null(wh) && nrow(wh) > 0) {
+      d <- wh %>%
+        mutate(
+          utilization = as.numeric(utilization),
+          predicted_utilization = as.numeric(predicted_utilization),
+          throughput = as.numeric(throughput),
+          avg_risk = as.numeric(avg_risk),
+          delay_rate = as.numeric(delay_rate),
+          shipments = as.numeric(shipments)
+        ) %>%
+        mutate(
+          utilization = if_else(!is.na(utilization), pmin(pmax(utilization, 0), 100), NA_real_),
+          predicted_utilization = if_else(!is.na(predicted_utilization), pmin(pmax(predicted_utilization, 0), 100), utilization),
+          stress_level = case_when(
+            predicted_utilization >= 85 ~ "High",
+            predicted_utilization >= 70 ~ "Medium",
+            TRUE ~ "Low"
+          )
+        ) %>%
+        arrange(desc(predicted_utilization), desc(utilization)) %>%
+        slice_head(n = 6)
+
+      if (nrow(d) > 0) return(d)
+    }
+
+    shipments() %>%
       group_by(destination) %>%
       summarise(
         throughput = sum(shipment_value, na.rm = TRUE),
@@ -16,14 +43,13 @@ warehouse_server <- function(input, output, session, shipments) {
       mutate(
         warehouse = paste(destination, "Hub"),
         utilization = pmin(98, 45 + safe_rescale(throughput, c(10, 40)) + delay_rate * 25),
+        predicted_utilization = pmin(99, utilization + safe_rescale(avg_risk, c(2, 10))),
         stress_level = case_when(
-          utilization >= 85 ~ "High",
-          utilization >= 70 ~ "Medium",
+          predicted_utilization >= 85 ~ "High",
+          predicted_utilization >= 70 ~ "Medium",
           TRUE ~ "Low"
         )
       )
-
-    d
   })
 
   output$warehouse_utilization_plot <- renderChart({
@@ -39,6 +65,7 @@ warehouse_server <- function(input, output, session, shipments) {
         text = paste(
           warehouse,
           "<br>Utilization:", round(utilization, 1), "%",
+          "<br>Predicted:", round(predicted_utilization, 1), "%",
           "<br>Shipments:", comma(shipments)
         )
       )
@@ -58,7 +85,7 @@ warehouse_server <- function(input, output, session, shipments) {
 
   output$capacity_stress_cards <- renderUI({
     d <- warehouse_base() %>%
-      arrange(desc(utilization)) %>%
+      arrange(desc(predicted_utilization)) %>%
       slice_head(n = 3)
 
     tagList(
@@ -67,11 +94,12 @@ warehouse_server <- function(input, output, session, shipments) {
         div(
           class = "stress-card",
           div(class = "stress-title", paste0(row$warehouse, " Capacity Stress")),
-          div(class = "stress-value", paste0(round(row$utilization, 1), "%")),
+          div(class = "stress-value", paste0(round(row$predicted_utilization, 1), "%")),
           div(
             class = "stress-title",
             paste0(
               "Predicted stress: ", row$stress_level,
+              " | Current Utilization: ", percent(row$utilization / 100, accuracy = 0.1),
               " | Delay Rate: ", percent(row$delay_rate, accuracy = 0.1)
             )
           )
@@ -81,10 +109,15 @@ warehouse_server <- function(input, output, session, shipments) {
   })
 
   historical_base <- reactive({
-    d <- shipments()
+    d <- historical_shipments()
     if (all(is.na(d$departure_dt))) {
       d <- d %>% mutate(departure_dt = as.POSIXct("2024-01-01", tz = "UTC") + row_number() * 3600 * 10)
     }
+
+    if (!"route" %in% names(d)) {
+      d <- d %>% mutate(route = paste(origin, destination, sep = " -> "))
+    }
+
     d
   })
 
