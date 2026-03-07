@@ -124,10 +124,13 @@ global_map_server <- function(input, output, session, shipments) {
     t_max <- max(d$expected_arrival_dt, na.rm = TRUE)
     req(!is.na(t_min), !is.na(t_max), t_max > t_min)
     t_mid <- t_min + (t_max - t_min) / 2
+    # Use ~100 steps so each tick produces visible movement
+    step_sec <- max(60, as.numeric(difftime(t_max, t_min, units = "secs")) / 100)
     sliderInput("map_sim_time", NULL,
       min = t_min, max = t_max, value = t_mid,
+      step = step_sec,
       timeFormat = "%b %d %H:%M",
-      animate = animationOptions(interval = 800, loop = TRUE),
+      animate = animationOptions(interval = 300, loop = TRUE),
       width = "100%")
   })
 
@@ -156,18 +159,25 @@ global_map_server <- function(input, output, session, shipments) {
       dist_remaining = round(shipping_distance * (1 - progress)),
       eta          = expected_arrival_dt
     )
-    # Interpolate position along arc
+    # Interpolate position & heading along arc
     veh_lat <- numeric(nrow(d))
     veh_lng <- numeric(nrow(d))
+    veh_hdg <- numeric(nrow(d))
     for (i in seq_len(nrow(d))) {
       arc <- make_arc(d$origin_lat[i], d$origin_lng[i],
                       d$dest_lat[i], d$dest_lng[i])
       idx <- max(1, min(50, round(d$progress[i] * 49) + 1))
       veh_lat[i] <- arc$lat[idx]
       veh_lng[i] <- arc$lng[idx]
+      # Calculate heading from current to next arc point
+      idx_next <- min(50, idx + 1)
+      dlng <- arc$lng[idx_next] - arc$lng[idx]
+      dlat <- arc$lat[idx_next] - arc$lat[idx]
+      veh_hdg[i] <- atan2(dlng, dlat) * 180 / pi  # degrees from north
     }
     d$veh_lat <- veh_lat
     d$veh_lng <- veh_lng
+    d$veh_hdg <- veh_hdg
     d
   })
 
@@ -282,53 +292,69 @@ global_map_server <- function(input, output, session, shipments) {
         )
 
       # ── Destination markers ─────────────────────────────
-      icons <- list(
-        Truck = makeAwesomeIcon(icon = "truck",  markerColor = "blue",      iconColor = "white", library = "fa"),
-        Sea   = makeAwesomeIcon(icon = "ship",   markerColor = "cadetblue", iconColor = "white", library = "fa"),
-        Air   = makeAwesomeIcon(icon = "plane",  markerColor = "green",     iconColor = "white", library = "fa"),
-        Rail  = makeAwesomeIcon(icon = "train",  markerColor = "orange",    iconColor = "white", library = "fa")
+      # Add small jitter so same-city markers spread when zoomed in
+      set.seed(42)
+      d$dest_lat_j <- d$dest_lat + runif(nrow(d), -0.08, 0.08)
+      d$dest_lng_j <- d$dest_lng + runif(nrow(d), -0.08, 0.08)
+
+      icon_list <- awesomeIcons(
+        icon = case_when(
+          d$shipping_method == "Truck" ~ "truck",
+          d$shipping_method == "Sea"   ~ "ship",
+          d$shipping_method == "Air"   ~ "plane",
+          d$shipping_method == "Rail"  ~ "train",
+          TRUE ~ "circle"
+        ),
+        markerColor = case_when(
+          d$shipping_method == "Truck" ~ "blue",
+          d$shipping_method == "Sea"   ~ "cadetblue",
+          d$shipping_method == "Air"   ~ "green",
+          d$shipping_method == "Rail"  ~ "orange",
+          TRUE ~ "gray"
+        ),
+        iconColor = "white",
+        library = "fa"
       )
 
-      for (method in names(icons)) {
-        sub <- d %>% filter(shipping_method == method)
-        if (nrow(sub) == 0) next
-
-        dest_labels <- lapply(seq_len(nrow(sub)), function(i) {
-          HTML(paste0(
-            '<div style="background:', lbl_bg, ';color:', lbl_fg,
-            ';border:1px solid ', lbl_bd,
-            ';padding:6px 10px;border-radius:6px;font-size:13px;">',
-            '<b>', sub$destination[i], '</b><br>',
-            '<span style="opacity:.6">Method:</span> ',   sub$shipping_method[i], '<br>',
-            '<span style="opacity:.6">Risk:</span> ',     round(sub$risk_score[i], 2), '<br>',
-            '<span style="opacity:.6">Exposure:</span> ', dollar(sub$financial_exposure[i]),
-            '</div>'
-          ))
-        })
-
-        popup_html <- paste0(
-          '<div style="font-size:13px;">',
-          '<b>Shipment #', sub$shipment_id, '</b><br>',
-          '<b>Route:</b> ', sub$origin, ' &rarr; ', sub$destination, '<br>',
-          '<b>Method:</b> ', sub$shipping_method, '<br>',
-          '<b>Weather:</b> ', sub$weather_condition, '<br>',
-          '<b>Risk Score:</b> ', round(sub$risk_score, 2), '<br>',
-          '<b>Exposure:</b> ', dollar(sub$financial_exposure), '<br>',
-          '<b>Delay:</b> ', sub$delay_flag, ' (', round(sub$delay_hours, 1), 'h)',
+      dest_labels <- lapply(seq_len(nrow(d)), function(i) {
+        HTML(paste0(
+          '<div style="background:', lbl_bg, ';color:', lbl_fg,
+          ';border:1px solid ', lbl_bd,
+          ';padding:6px 10px;border-radius:6px;font-size:13px;">',
+          '<b>', d$destination[i], '</b><br>',
+          '<span style="opacity:.6">Method:</span> ',   d$shipping_method[i], '<br>',
+          '<span style="opacity:.6">Risk:</span> ',     round(d$risk_score[i], 2), '<br>',
+          '<span style="opacity:.6">Exposure:</span> ', dollar(d$financial_exposure[i]),
           '</div>'
-        )
+        ))
+      })
 
-        m <- m %>%
-          addAwesomeMarkers(
-            data = sub, lng = ~dest_lng, lat = ~dest_lat,
-            icon     = icons[[method]],
-            group    = "markers",
-            layerId  = ~paste0("dest_", shipment_id),
-            label    = dest_labels, labelOptions = lbl_opt,
-            popup    = popup_html,
-            clusterOptions = markerClusterOptions()
+      popup_html <- paste0(
+        '<div style="font-size:13px;">',
+        '<b>Shipment #', d$shipment_id, '</b><br>',
+        '<b>Route:</b> ', d$origin, ' &rarr; ', d$destination, '<br>',
+        '<b>Method:</b> ', d$shipping_method, '<br>',
+        '<b>Weather:</b> ', d$weather_condition, '<br>',
+        '<b>Risk Score:</b> ', round(d$risk_score, 2), '<br>',
+        '<b>Exposure:</b> ', dollar(d$financial_exposure), '<br>',
+        '<b>Delay:</b> ', d$delay_flag, ' (', round(d$delay_hours, 1), 'h)',
+        '</div>'
+      )
+
+      m <- m %>%
+        addAwesomeMarkers(
+          data = d, lng = ~dest_lng_j, lat = ~dest_lat_j,
+          icon     = icon_list,
+          group    = "markers",
+          layerId  = ~paste0("dest_", shipment_id),
+          label    = dest_labels, labelOptions = lbl_opt,
+          popup    = popup_html,
+          clusterOptions = markerClusterOptions(
+            zoomToBoundsOnClick = TRUE,
+            spiderfyOnMaxZoom = TRUE,
+            maxClusterRadius = 80
           )
-      }
+        )
 
       m
 
@@ -412,7 +438,7 @@ global_map_server <- function(input, output, session, shipments) {
     lbl_fg <- if (is_dark) "#F3F4F6" else "#1F2933"
     lbl_bd <- if (is_dark) "#555"    else "#E7EAEE"
 
-    # Vehicle icons per method — distinct colors from destination markers
+    # Vehicle icons per method — original awesome marker style
     veh_icons <- list(
       Truck = makeAwesomeIcon(icon = "truck", markerColor = "darkblue",  iconColor = "#fff", library = "fa"),
       Sea   = makeAwesomeIcon(icon = "ship",  markerColor = "darkpurple", iconColor = "#fff", library = "fa"),

@@ -570,6 +570,32 @@ global_map_ui <- function() {
         color: #ccc !important;
         box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
       }
+
+      /* ── Live vehicle markers ──────────────────────── */
+      .veh-marker-wrap {
+        background: none !important;
+        border: none !important;
+      }
+      .veh-live {
+        filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
+        transition: transform 0.6s ease;
+      }
+      .veh-live::after {
+        content: '';
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 36px; height: 36px;
+        margin: -18px 0 0 -18px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,255,255,0.25) 0%, transparent 70%);
+        animation: veh-pulse 2s ease-in-out infinite;
+        pointer-events: none;
+      }
+      @keyframes veh-pulse {
+        0%   { transform: scale(0.8); opacity: 0.6; }
+        50%  { transform: scale(1.6); opacity: 0; }
+        100% { transform: scale(0.8); opacity: 0.6; }
+      }
     ")),
     div(
       class = "tab-stack map-fullbleed theme-dark",
