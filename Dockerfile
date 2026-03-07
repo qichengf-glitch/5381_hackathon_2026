@@ -2,6 +2,21 @@ FROM rocker/shiny-verse:4.3.3
 
 WORKDIR /app
 
+# Geospatial/system dependencies needed by leaflet -> sf/s2/terra/units on cloud builders
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  cmake \
+  gdal-bin \
+  libgdal-dev \
+  libgeos-dev \
+  libproj-dev \
+  libudunits2-dev \
+  libabsl-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+# Avoid inherited local Makevars/CMAKE paths (e.g. macOS CMake path)
+ENV R_MAKEVARS_USER=/dev/null
+ENV CMAKE=/usr/bin/cmake
+
 # Install required R packages for this app
 RUN R -e "install.packages(c( \
   'bslib','DT','readxl','scales','lubridate','glue', \
