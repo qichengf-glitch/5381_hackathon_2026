@@ -2,6 +2,10 @@
 logs/
 *.log
 
+# Environment files
+.env
+supabase_setup/.env
+
 # R
 .Rhistory
 .RData

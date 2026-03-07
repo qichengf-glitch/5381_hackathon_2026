@@ -12,20 +12,6 @@ library(glue)
 
 options(bslib.sass.cache = file.path(tempdir(), "bslib-sass-cache"))
 
-# ── Setup Logging ─────────────────────────────────────────────
-LOG_DIR <- "logs"
-if (!dir.exists(LOG_DIR)) dir.create(LOG_DIR, showWarnings = FALSE)
-LOG_FILE <- file.path(LOG_DIR, sprintf("app_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S")))
-
-# Create log file and redirect output
-log_con <- file(LOG_FILE, open = "wt")
-sink(log_con, type = "output", split = TRUE)  # Split: also show in console
-sink(log_con, type = "message")  # Note: message sink cannot use split=TRUE
-
-# Log startup
-cat(sprintf("\n=== Shiny App Started: %s ===\n", Sys.time()))
-cat(sprintf("Log file: %s\n\n", LOG_FILE))
-
 # Load constants and utilities (HAS_PLOTLY and HAS_LEAFLET are defined in utils.R)
 source("constants.R")
 source("utils.R")
@@ -103,13 +89,5 @@ server <- function(input, output, session) {
   source("modules/copilot_server.R", local = TRUE)
   copilot_server(input, output, session, shipments, warehouse_base)
 }
-
-# Run the application
-on.exit({
-  cat(sprintf("\n=== Shiny App Stopped: %s ===\n", Sys.time()))
-  sink(type = "output")
-  sink(type = "message")
-  close(log_con)
-}, add = TRUE)
 
 shinyApp(ui, server)

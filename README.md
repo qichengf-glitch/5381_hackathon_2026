@@ -1,63 +1,113 @@
 # RiskRoute AI - Shiny Application
 
+Enterprise-style Shiny dashboard for supply chain risk intelligence, with six tabs:
+
+- Overview
+- Global Map
+- Risk Monitor
+- Financial Risk
+- Warehouse & Historical Analytics
+- AI Copilot
+
 ## Project Structure
 
-This Shiny application has been modularized for better code organization and maintainability.
+The app is modularized for maintainability and team collaboration.
 
 ### Main Files
 
-- **`app.R`** - Main entry point that loads all modules and initializes the Shiny app
-- **`constants.R`** - All constants, configuration values, and data structures
-- **`utils.R`** - Utility functions used across the application
-- **`ui_global.R`** - Global UI components including styles and main navigation structure
+- `app.R` - application entry point; loads modules, initializes reactives, and starts Shiny
+- `constants.R` - shared constants (table names, colors, required columns, coordinates)
+- `utils.R` - shared helpers (data loading/cleaning, formatting, chart wrappers)
+- `ui_global.R` - global theme, styles, and top-level navbar
 
-### Modules Directory (`modules/`)
+### Modules (`modules/`)
 
-Each page/tab has been separated into its own UI and Server files:
+#### Overview
+- `overview_ui.R`
+- `overview_server.R`
 
-#### Overview Page
-- `overview_ui.R` - Overview page UI components
-- `overview_server.R` - Overview page server logic
+#### Global Map
+- `global_map_ui.R`
+- `global_map_server.R`
 
-#### Global Map Page
-- `global_map_ui.R` - Global map page UI components
-- `global_map_server.R` - Global map page server logic
+#### Risk Monitor
+- `risk_monitor_ui.R`
+- `risk_monitor_server.R`
 
-#### Risk Monitor Page
-- `risk_monitor_ui.R` - Risk monitor page UI components
-- `risk_monitor_server.R` - Risk monitor page server logic
+#### Financial Risk
+- `financial_ui_financialRisk.R`
+- `financial_server_financialRisk.R`
 
-#### Financial Risk Page
-- `financial_ui.R` - Financial risk page UI components
-- `financial_server.R` - Financial risk page server logic
+#### Warehouse & Historical Analytics
+- `warehouse_ui.R`
+- `warehouse_server.R`
 
-#### Warehouse & Historical Analytics Page
-- `warehouse_ui.R` - Warehouse page UI components
-- `warehouse_server.R` - Warehouse page server logic
+#### AI Copilot
+- `copilot_ui.R`
+- `copilot_server.R`
 
-#### AI Copilot Page
-- `copilot_ui.R` - AI Copilot page UI components
-- `copilot_server.R` - AI Copilot page server logic
+## Run the App
 
-## Running the Application
-
-Simply run:
+In R:
 
 ```r
 shiny::runApp("app.R")
 ```
 
-Or from the command line:
+In terminal:
 
 ```bash
 Rscript -e "shiny::runApp('app.R')"
 ```
 
-## Data Source Priority
+If port `3838` is occupied:
 
-The app now loads data in this order:
+```bash
+Rscript -e "shiny::runApp('app.R', port = 3840)"
+```
 
-1. Supabase table `final_shipment` (if `.env` or `supabase_setup/.env` is configured)
-2. Local `Final_shipment.xlsx` (fallback)
+## Deploy (Docker Platforms)
 
-Set `USE_SUPABASE=false` in environment to force local file mode.
+This repo now includes a root `Dockerfile` for platforms that require component auto-detection (for example, DigitalOcean App Platform).
+
+If a platform shows `No components detected`, verify:
+
+- Repository root contains `Dockerfile` (this project does).
+- Source directory is set to repository root (`/`).
+- Build type is Dockerfile (not Node/Python auto-detect).
+
+Required runtime environment variables:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_ANON_KEY`)
+- `PORT` (usually injected by the platform)
+
+Container start command uses:
+
+- host: `0.0.0.0`
+- port: `Sys.getenv('PORT', '8080')`
+
+## Data Source (Current Version)
+
+`app.R` currently loads data from Supabase via:
+
+- `load_shipment_data()` -> `final_shipment`
+- `load_historical_data()` -> `historical_shipments`
+- `load_warehouse_status_data()` -> `warehouse_status_by_cargo`
+
+Environment variables are loaded from `.env` or `supabase_setup/.env`.
+
+Required:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (preferred) or `SUPABASE_ANON_KEY`
+
+Notes:
+
+- Supabase fetch uses pagination (`limit` + `offset`) to avoid the 1000-row cap.
+- Keep `.env` out of git history.
+
+## Development Notes
+
+- Optional packages: `plotly`, `leaflet` (app degrades gracefully if unavailable)
+- Local cleaning helpers still exist in `utils.R` (e.g., `load_shipment_data_local()`), but main app flow is Supabase-first in this version.
