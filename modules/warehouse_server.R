@@ -196,7 +196,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
   output$wh_kpi_reliability <- renderUI({
     m <- kpi_metrics()
-    kpi_card("Route Reliability", percent(m$reliability, accuracy = 0.1), "Unified definition: 1 - delay rate", "shield-check")
+    kpi_card("Route Reliability", percent(m$reliability, accuracy = 0.1), "Unified definition: 1 - delay rate", "shield")
   })
 
   output$wh_kpi_high_stress <- renderUI({

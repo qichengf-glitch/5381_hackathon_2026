@@ -4,7 +4,8 @@ financial_server <- function(input, output, session, shipments) {
   high_exposure_quantile <- 0.90
 
   as_numeric_vec <- function(x) {
-    suppressWarnings(as.numeric(x))
+    # parse_number handles values like "$194,692" or "194,692.00"
+    suppressWarnings(readr::parse_number(as.character(x)))
   }
 
   safe_mean_numeric <- function(x) {
@@ -282,6 +283,10 @@ financial_server <- function(input, output, session, shipments) {
     d <- shipments()
     threshold <- high_exposure_threshold()
     high_count <- calculate_high_exposure_count(d, threshold)
+    high_count_num <- suppressWarnings(as.numeric(high_count))
+    if (!is.finite(high_count_num)) {
+      high_count_num <- 0
+    }
 
     subtitle <- if (is.finite(threshold)) {
       glue("Exposure >= {dollar(threshold)} ({percent(high_exposure_quantile, accuracy = 1)} quantile)")
@@ -291,7 +296,7 @@ financial_server <- function(input, output, session, shipments) {
 
     kpi_card(
       "High-Exposure Shipments",
-      format_number(as.numeric(high_count)),
+      scales::comma(high_count_num),
       subtitle,
       "triangle-exclamation"
     )
@@ -333,12 +338,15 @@ financial_server <- function(input, output, session, shipments) {
         )
       )
     ) +
-      geom_point(alpha = 0.7) +
+      geom_point(alpha = 0.42, stroke = 0.2) +
       scale_color_manual(values = RISK_COLORS) +
-      scale_size_continuous(range = c(2.5, 11)) +
+      scale_size_continuous(range = c(1.2, 5.8), trans = "sqrt") +
       labs(x = "Shipment Value", y = "Risk Score", color = "Risk Level", size = "Exposure") +
       theme_minimal(base_size = 13) +
-      theme(panel.grid.minor = element_blank())
+      theme(
+        panel.grid.minor = element_blank(),
+        legend.key.height = grid::unit(0.6, "lines")
+      )
 
     finalize_chart(p, tooltip = "text")
   })
@@ -346,6 +354,10 @@ financial_server <- function(input, output, session, shipments) {
   output$financial_top_table <- renderDT({
     d <- shipments() %>%
       mutate(
+        origin = as.character(origin),
+        destination = as.character(destination),
+        shipping_method = as.character(shipping_method),
+        shipment_value_num = as_numeric_vec(shipment_value),
         financial_exposure_num = as_numeric_vec(financial_exposure),
         risk_score_num = as_numeric_vec(risk_score)
       ) %>%
@@ -354,28 +366,37 @@ financial_server <- function(input, output, session, shipments) {
         desc(replace_na(risk_score_num, -Inf))
       ) %>%
       transmute(
-        `Shipment ID` = shipment_id,
-        Route = route,
-        `Risk Score` = round(risk_score_num, 2),
-        Delay = delay_flag,
-        `Financial Exposure` = financial_exposure_num
+        Origin = origin,
+        Destination = destination,
+        `Shipping Method` = shipping_method,
+        `Shipment Value` = shipment_value_num,
+        `Financial Exposure` = financial_exposure_num,
+        `Risk Score` = round(risk_score_num, 2)
       ) %>%
       slice_head(n = 10)
+
+    exposure_cuts <- unique(as.numeric(stats::quantile(d$`Financial Exposure`, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    exposure_colors_full <- c("#FFFBE6", "#FEF2C7", "#FDE68A", "#FCD34D")
+    exposure_colors <- exposure_colors_full[seq_len(length(exposure_cuts) + 1)]
 
     datatable(
       d,
       rownames = FALSE,
+      class = "stripe hover compact",
       options = list(
         dom = "t",
-        paging = FALSE,
-        searching = FALSE,
         ordering = FALSE,
-        info = FALSE,
         autoWidth = TRUE,
-        scrollX = TRUE
+        pageLength = 10
       )
     ) %>%
-      formatCurrency("Financial Exposure", currency = "$", digits = 0)
+      formatCurrency(c("Shipment Value", "Financial Exposure"), currency = "$", interval = 3, mark = ",", digits = 0) %>%
+      formatStyle(
+        "Financial Exposure",
+        backgroundColor = styleInterval(exposure_cuts, exposure_colors),
+        color = "#6B4F00",
+        fontWeight = "700"
+      )
   })
 
   financial_ai_summary <- reactive({

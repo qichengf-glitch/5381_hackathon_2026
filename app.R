@@ -30,7 +30,7 @@ source("ui_global.R")
 source("modules/overview_ui.R")
 source("modules/global_map_ui.R")
 source("modules/risk_monitor_ui.R")
-source("modules/financial_ui.R")
+source("modules/financial_ui_financialRisk.R")
 source("modules/warehouse_ui.R")
 source("modules/copilot_ui.R")
 
@@ -75,7 +75,7 @@ server <- function(input, output, session) {
   source("modules/risk_monitor_server.R", local = TRUE)
   risk_monitor_server(input, output, session, shipments)
   
-  source("modules/financial_server.R", local = TRUE)
+  source("modules/financial_server_financialRisk.R", local = TRUE)
   financial_server(input, output, session, shipments)
   
   source("modules/warehouse_server.R", local = TRUE)
