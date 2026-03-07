@@ -120,7 +120,7 @@ supabase_key <- function() {
   Sys.getenv("SUPABASE_ANON_KEY")
 }
 
-fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000) {
+fetch_supabase_table <- function(table_name, limit = 50000) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     stop("Package 'httr2' is required for Supabase integration.")
   }
@@ -134,41 +134,18 @@ fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000
     stop("SUPABASE_URL and key are required.")
   }
 
-  if (!is.numeric(page_size) || page_size <= 0) page_size <- 1000
-  if (!is.numeric(max_rows) || max_rows <= 0) max_rows <- 200000
+  req <- httr2::request(sprintf("%s/rest/v1/%s", base_url, table_name)) %>%
+    httr2::req_url_query(select = "*", limit = limit) %>%
+    httr2::req_headers(
+      apikey = key,
+      Authorization = paste("Bearer", key)
+    ) %>%
+    httr2::req_timeout(seconds = 30)
 
-  batches <- list()
-  offset <- 0
-
-  repeat {
-    upper <- offset + page_size - 1
-
-    req <- httr2::request(sprintf("%s/rest/v1/%s", base_url, table_name)) %>%
-      httr2::req_url_query(select = "*") %>%
-      httr2::req_headers(
-        apikey = key,
-        Authorization = paste("Bearer", key),
-        Range = paste0(offset, "-", upper),
-        `Range-Unit` = "items"
-      ) %>%
-      httr2::req_timeout(seconds = 30)
-
-    resp <- httr2::req_perform(req)
-    txt <- httr2::resp_body_string(resp)
-    batch <- jsonlite::fromJSON(txt, flatten = TRUE) %>%
-      tibble::as_tibble()
-
-    n_batch <- nrow(batch)
-    if (n_batch == 0) break
-
-    batches[[length(batches) + 1]] <- batch
-    offset <- offset + n_batch
-
-    if (n_batch < page_size || offset >= max_rows) break
-  }
-
-  if (length(batches) == 0) return(tibble::tibble())
-  dplyr::bind_rows(batches)
+  resp <- httr2::req_perform(req)
+  txt <- httr2::resp_body_string(resp)
+  jsonlite::fromJSON(txt, flatten = TRUE) %>%
+    tibble::as_tibble()
 }
 
 clean_shipment_data <- function(raw) {
@@ -394,45 +371,66 @@ load_shipment_data_local <- function(path = DEFAULT_DATA_PATH) {
 
 load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
   if (!supabase_ready()) {
-    stop(
-      "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY ",
-      "(or SUPABASE_ANON_KEY) in .env or supabase_setup/.env."
+    warning(
+      "Supabase is not configured; falling back to local shipment file.",
+      call. = FALSE
     )
+    return(load_shipment_data_local(path))
   }
 
   raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
   if (nrow(raw) == 0) {
-    stop("Supabase table '", SUPABASE_TABLE_FINAL, "' returned 0 rows.")
+    warning(
+      "Supabase final table returned 0 rows; falling back to local shipment file.",
+      call. = FALSE
+    )
+    return(load_shipment_data_local(path))
   }
   clean_shipment_data(raw)
 }
 
 load_historical_data <- function(base_shipments = NULL) {
+  base_shipments_safe <- if (is.null(base_shipments)) tibble::tibble() else base_shipments
+
   if (!supabase_ready()) {
-    stop(
-      "Supabase is not configured for historical data. Set SUPABASE_URL and key in .env."
+    warning(
+      "Supabase is not configured for historical data; using derived local history.",
+      call. = FALSE
     )
+    return(derive_historical_from_shipments(base_shipments_safe))
   }
 
   raw <- fetch_supabase_table(SUPABASE_TABLE_HISTORICAL)
   res <- clean_historical_data(raw, fallback_shipments = base_shipments)
   if (nrow(res) == 0) {
-    stop("Supabase table '", SUPABASE_TABLE_HISTORICAL, "' returned no usable rows.")
+    warning(
+      "Supabase historical table returned no usable rows; using derived local history.",
+      call. = FALSE
+    )
+    return(derive_historical_from_shipments(base_shipments_safe))
   }
   res
 }
 
 load_warehouse_status_data <- function(base_shipments = NULL) {
+  base_shipments_safe <- if (is.null(base_shipments)) tibble::tibble() else base_shipments
+
   if (!supabase_ready()) {
-    stop(
-      "Supabase is not configured for warehouse data. Set SUPABASE_URL and key in .env."
+    warning(
+      "Supabase is not configured for warehouse data; using derived local warehouse status.",
+      call. = FALSE
     )
+    return(derive_warehouse_from_shipments(base_shipments_safe))
   }
 
   raw <- fetch_supabase_table(SUPABASE_TABLE_WAREHOUSE)
   res <- clean_warehouse_status_data(raw, fallback_shipments = base_shipments)
   if (nrow(res) == 0) {
-    stop("Supabase table '", SUPABASE_TABLE_WAREHOUSE, "' returned no usable rows.")
+    warning(
+      "Supabase warehouse table returned no usable rows; using derived local warehouse status.",
+      call. = FALSE
+    )
+    return(derive_warehouse_from_shipments(base_shipments_safe))
   }
   res
 }
@@ -467,10 +465,12 @@ chartOutput <- function(output_id, height = NULL) {
 }
 
 renderChart <- function(expr) {
+  expr_quoted <- substitute(expr)
+  expr_env <- parent.frame()
   if (HAS_PLOTLY) {
-    plotly::renderPlotly(expr)
+    plotly::renderPlotly(expr_quoted, quoted = TRUE, env = expr_env)
   } else {
-    renderPlot(expr, res = 110)
+    renderPlot(expr_quoted, quoted = TRUE, env = expr_env, res = 110)
   }
 }
 
@@ -492,9 +492,11 @@ mapWidgetOutput <- function(output_id, height = NULL) {
 }
 
 renderMapWidget <- function(expr) {
+  expr_quoted <- substitute(expr)
+  expr_env <- parent.frame()
   if (HAS_LEAFLET) {
-    leaflet::renderLeaflet(expr)
+    leaflet::renderLeaflet(expr_quoted, quoted = TRUE, env = expr_env)
   } else {
-    renderPlot(expr, res = 110)
+    renderPlot(expr_quoted, quoted = TRUE, env = expr_env, res = 110)
   }
 }
