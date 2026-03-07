@@ -286,20 +286,36 @@ clean_warehouse_status_data <- function(raw, fallback_shipments = NULL) {
     mutate(
       warehouse = as.character(pick_col(raw, c("warehouse", "warehouse_name", "destination", "hub", "location"))),
       cargo_type = as.character(pick_col(raw, c("cargo_type", "cargo", "category", "product_type"), default = "All Cargo")),
-      utilization = as.numeric(pick_col(raw, c("utilization", "warehouse_utilization", "utilization_pct", "current_utilization"))),
-      predicted_utilization = as.numeric(pick_col(raw, c("predicted_utilization", "forecast_utilization", "predicted_capacity_stress"))),
+      utilization = as.numeric(pick_col(raw, c("utilization", "warehouse_utilization", "utilization_pct", "current_utilization", "utilization_rate"))),
+      predicted_utilization = as.numeric(pick_col(raw, c("predicted_utilization", "forecast_utilization", "predicted_capacity_stress", "projected_utilization"))),
       throughput = as.numeric(pick_col(raw, c("throughput", "shipment_value", "volume", "current_load"), default = NA_real_)),
       avg_risk = as.numeric(pick_col(raw, c("avg_risk", "risk_score", "risk"), default = NA_real_)),
       delay_rate = as.numeric(pick_col(raw, c("delay_rate", "delayed_rate", "delay_ratio"), default = NA_real_)),
       shipments = as.numeric(pick_col(raw, c("shipments", "shipment_count", "count"), default = NA_real_)),
-      stress_level = as.character(pick_col(raw, c("stress_level", "risk_level")))
+      stress_level = as.character(pick_col(raw, c("stress_level", "risk_level"))),
+      incoming_shipments = as.numeric(pick_col(raw, c("incoming_shipments", "inbound_shipments"), default = NA_real_)),
+      outgoing_shipments = as.numeric(pick_col(raw, c("outgoing_shipments", "outbound_shipments"), default = NA_real_)),
+      congestion_flag_raw = as.character(pick_col(raw, c("congestion_flag", "is_congested", "congested"), default = "0")),
+      predicted_hours_to_90 = as.numeric(pick_col(raw, c("predicted_hours_to_90"), default = NA_real_)),
+      predicted_hours_to_full = as.numeric(pick_col(raw, c("predicted_hours_to_full"), default = NA_real_))
     ) %>%
     mutate(
       warehouse = if_else(is.na(warehouse) | !nzchar(warehouse), "Unknown Hub", warehouse),
       utilization = if_else(!is.na(utilization) & utilization <= 1, utilization * 100, utilization),
       predicted_utilization = if_else(!is.na(predicted_utilization) & predicted_utilization <= 1, predicted_utilization * 100, predicted_utilization),
-      predicted_utilization = coalesce(predicted_utilization, utilization),
+      congestion_flag = congestion_flag_raw %in% c("1", "TRUE", "T", "Yes", "Y", "yes", "true"),
+      throughput = coalesce(throughput, incoming_shipments + outgoing_shipments),
+      shipments = coalesce(shipments, incoming_shipments + outgoing_shipments),
+      pressure = incoming_shipments - outgoing_shipments,
+      predicted_utilization = coalesce(
+        predicted_utilization,
+        utilization +
+          if_else(!is.na(pressure), safe_rescale(pressure, c(0, 8)), 0) +
+          if_else(congestion_flag, 6, 0) +
+          if_else(!is.na(predicted_hours_to_full), (1 - safe_rescale(predicted_hours_to_full, c(0, 1))) * 8, 0)
+      ),
       delay_rate = if_else(!is.na(delay_rate) & delay_rate > 1, delay_rate / 100, delay_rate),
+      predicted_utilization = pmin(pmax(predicted_utilization, 0), 100),
       stress_level = case_when(
         stress_level %in% c("Low", "Medium", "High") ~ stress_level,
         predicted_utilization >= 85 ~ "High",
@@ -329,7 +345,9 @@ clean_warehouse_status_data <- function(raw, fallback_shipments = NULL) {
       shipments = if_else(is.finite(shipments), shipments, NA_real_)
     )
 
-  if (nrow(out) == 0 && !is.null(fallback_shipments)) {
+  has_usable_rows <- nrow(out %>% filter(!is.na(utilization), nzchar(warehouse))) > 0
+
+  if (!has_usable_rows && !is.null(fallback_shipments)) {
     return(derive_warehouse_from_shipments(fallback_shipments))
   }
 
@@ -352,65 +370,48 @@ load_shipment_data_local <- function(path = DEFAULT_DATA_PATH) {
 }
 
 load_shipment_data <- function(path = DEFAULT_DATA_PATH) {
-  use_supabase <- tolower(Sys.getenv("USE_SUPABASE", "true"))
-
-  if (use_supabase != "false" && supabase_ready()) {
-    supabase_result <- tryCatch(
-      {
-        raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
-        clean_shipment_data(raw)
-      },
-      error = function(e) {
-        message("Supabase final_shipment fetch failed, fallback to local file: ", e$message)
-        NULL
-      }
+  if (!supabase_ready()) {
+    stop(
+      "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY ",
+      "(or SUPABASE_ANON_KEY) in .env or supabase_setup/.env."
     )
-    if (!is.null(supabase_result) && nrow(supabase_result) > 0) return(supabase_result)
   }
 
-  load_shipment_data_local(path)
+  raw <- fetch_supabase_table(SUPABASE_TABLE_FINAL)
+  if (nrow(raw) == 0) {
+    stop("Supabase table '", SUPABASE_TABLE_FINAL, "' returned 0 rows.")
+  }
+  clean_shipment_data(raw)
 }
 
 load_historical_data <- function(base_shipments = NULL) {
-  use_supabase <- tolower(Sys.getenv("USE_SUPABASE", "true"))
-
-  if (use_supabase != "false" && supabase_ready()) {
-    res <- tryCatch(
-      {
-        raw <- fetch_supabase_table(SUPABASE_TABLE_HISTORICAL)
-        clean_historical_data(raw, fallback_shipments = base_shipments)
-      },
-      error = function(e) {
-        message("Supabase historical_shipments fetch failed: ", e$message)
-        NULL
-      }
+  if (!supabase_ready()) {
+    stop(
+      "Supabase is not configured for historical data. Set SUPABASE_URL and key in .env."
     )
-    if (!is.null(res) && nrow(res) > 0) return(res)
   }
 
-  if (!is.null(base_shipments)) return(derive_historical_from_shipments(base_shipments))
-  tibble()
+  raw <- fetch_supabase_table(SUPABASE_TABLE_HISTORICAL)
+  res <- clean_historical_data(raw, fallback_shipments = base_shipments)
+  if (nrow(res) == 0) {
+    stop("Supabase table '", SUPABASE_TABLE_HISTORICAL, "' returned no usable rows.")
+  }
+  res
 }
 
 load_warehouse_status_data <- function(base_shipments = NULL) {
-  use_supabase <- tolower(Sys.getenv("USE_SUPABASE", "true"))
-
-  if (use_supabase != "false" && supabase_ready()) {
-    res <- tryCatch(
-      {
-        raw <- fetch_supabase_table(SUPABASE_TABLE_WAREHOUSE)
-        clean_warehouse_status_data(raw, fallback_shipments = base_shipments)
-      },
-      error = function(e) {
-        message("Supabase warehouse_status_by_cargo fetch failed: ", e$message)
-        NULL
-      }
+  if (!supabase_ready()) {
+    stop(
+      "Supabase is not configured for warehouse data. Set SUPABASE_URL and key in .env."
     )
-    if (!is.null(res) && nrow(res) > 0) return(res)
   }
 
-  if (!is.null(base_shipments)) return(derive_warehouse_from_shipments(base_shipments))
-  tibble()
+  raw <- fetch_supabase_table(SUPABASE_TABLE_WAREHOUSE)
+  res <- clean_warehouse_status_data(raw, fallback_shipments = base_shipments)
+  if (nrow(res) == 0) {
+    stop("Supabase table '", SUPABASE_TABLE_WAREHOUSE, "' returned no usable rows.")
+  }
+  res
 }
 
 format_currency <- label_dollar(accuracy = 1)

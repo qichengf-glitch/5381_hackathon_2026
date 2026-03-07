@@ -26,7 +26,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         arrange(desc(predicted_utilization), desc(utilization)) %>%
         slice_head(n = 6)
 
-      if (nrow(d) > 0) return(d)
+      if (nrow(d) > 0 && any(!is.na(d$utilization))) return(d)
     }
 
     shipments() %>%
@@ -54,7 +54,23 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
   output$warehouse_utilization_plot <- renderChart({
     d <- warehouse_base() %>%
-      mutate(warehouse = fct_reorder(warehouse, utilization))
+      mutate(
+        warehouse = as.character(warehouse),
+        utilization = as.numeric(utilization),
+        predicted_utilization = as.numeric(predicted_utilization),
+        shipments = as.numeric(shipments),
+        stress_level = as.character(stress_level)
+      ) %>%
+      filter(!is.na(warehouse), nzchar(warehouse), !is.na(utilization)) %>%
+      arrange(desc(utilization)) %>%
+      distinct(warehouse, .keep_all = TRUE)
+
+    req(nrow(d) > 0)
+
+    d <- d %>%
+      mutate(
+        warehouse = forcats::fct_reorder(factor(warehouse), utilization, .na_rm = TRUE)
+      )
 
     p <- ggplot(
       d,
@@ -136,6 +152,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       aes(
         x = month,
         y = reliability,
+        group = 1,
         text = paste(
           format(month, "%b %Y"),
           "<br>Reliability:", percent(reliability, accuracy = 0.1),
@@ -143,12 +160,15 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         )
       )
     ) +
-      geom_line(color = "#6E7E31", linewidth = 1.1) +
       geom_point(color = "#6E7E31", size = 2.2) +
       scale_y_continuous(labels = percent_format()) +
       labs(x = NULL, y = "Reliability") +
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
+
+    if (nrow(d) > 1) {
+      p <- p + geom_line(color = "#6E7E31", linewidth = 1.1)
+    }
 
     finalize_chart(p, tooltip = "text")
   })
@@ -168,6 +188,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       aes(
         x = week,
         y = delay_rate,
+        group = 1,
         text = paste(
           format(week, "%d %b %Y"),
           "<br>Delay Rate:", percent(delay_rate, accuracy = 0.1),
@@ -175,12 +196,15 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         )
       )
     ) +
-      geom_line(color = "#C6473B", linewidth = 1.1) +
       geom_point(color = "#C6473B", size = 1.9) +
       scale_y_continuous(labels = percent_format()) +
       labs(x = NULL, y = "Delay Rate") +
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
+
+    if (nrow(d) > 1) {
+      p <- p + geom_line(color = "#C6473B", linewidth = 1.1)
+    }
 
     finalize_chart(p, tooltip = "text")
   })

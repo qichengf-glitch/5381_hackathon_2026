@@ -1,6 +1,9 @@
 # Constants and Configuration
 
-DEFAULT_DATA_PATH <- "/Users/qichengfu/Desktop/5381_hackathon/Final_shipment.xlsx"
+FINAL_SHIPMENT_CSV_PATH <- "/Users/qichengfu/Desktop/Final_shipment.csv"
+HISTORICAL_SHIPMENTS_CSV_PATH <- "/Users/qichengfu/Desktop/historical_shipments.csv"
+WAREHOUSE_STATUS_CSV_PATH <- "/Users/qichengfu/Desktop/warehouse_status_by_cargo.csv"
+DEFAULT_DATA_PATH <- FINAL_SHIPMENT_CSV_PATH
 SUPABASE_TABLE_FINAL <- "final_shipment"
 SUPABASE_TABLE_HISTORICAL <- "historical_shipments"
 SUPABASE_TABLE_WAREHOUSE <- "warehouse_status_by_cargo"
