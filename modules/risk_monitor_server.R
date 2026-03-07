@@ -237,7 +237,7 @@ risk_monitor_server <- function(input, output, session, shipments) {
         "Delay Bucket",
         backgroundColor = styleEqual(c("24h+"), c("#FCE9E6"))
       )
-  })
+  }, server = FALSE)
 
   selected_monitor_row <- reactive({
     idx <- input$risk_table_rows_selected

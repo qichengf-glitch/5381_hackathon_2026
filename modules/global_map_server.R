@@ -511,7 +511,7 @@ global_map_server <- function(input, output, session, shipments) {
     ) %>%
       formatRound("Avg Delay (hrs)", 1) %>%
       formatCurrency("Avg Exposure", currency = "$", digits = 0)
-  })
+  }, server = FALSE)
 
   # ── Enhanced legend ───────────────────────────────────────────
   output$risk_legend_widget <- renderUI({

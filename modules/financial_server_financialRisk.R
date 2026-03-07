@@ -375,7 +375,20 @@ financial_server <- function(input, output, session, shipments) {
       ) %>%
       slice_head(n = 10)
 
-    exposure_cuts <- unique(as.numeric(stats::quantile(d$`Financial Exposure`, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    if (nrow(d) == 0) {
+      return(datatable(
+        tibble(Note = "No financial exposure rows available."),
+        rownames = FALSE,
+        options = list(dom = "t", paging = FALSE, searching = FALSE, ordering = FALSE)
+      ))
+    }
+
+    exposure_vals <- d$`Financial Exposure`[is.finite(d$`Financial Exposure`)]
+    exposure_cuts <- if (length(exposure_vals) > 0) {
+      unique(as.numeric(stats::quantile(exposure_vals, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    } else {
+      numeric(0)
+    }
     exposure_colors_full <- c("#FFFBE6", "#FEF2C7", "#FDE68A", "#FCD34D")
     exposure_colors <- exposure_colors_full[seq_len(length(exposure_cuts) + 1)]
 
@@ -397,7 +410,7 @@ financial_server <- function(input, output, session, shipments) {
         color = "#6B4F00",
         fontWeight = "700"
       )
-  })
+  }, server = FALSE)
 
   financial_ai_summary <- reactive({
     d <- shipments()

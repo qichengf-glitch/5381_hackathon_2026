@@ -239,7 +239,20 @@ overview_server <- function(input, output, session, shipments) {
       ) %>%
       slice_head(n = 10)
 
-    risk_cuts <- unique(as.numeric(stats::quantile(d$`Risk Score`, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    if (nrow(d) == 0) {
+      return(datatable(
+        tibble(Note = "No high-risk shipment data available."),
+        rownames = FALSE,
+        options = list(dom = "t", paging = FALSE, searching = FALSE, ordering = FALSE)
+      ))
+    }
+
+    risk_vals <- d$`Risk Score`[is.finite(d$`Risk Score`)]
+    risk_cuts <- if (length(risk_vals) > 0) {
+      unique(as.numeric(stats::quantile(risk_vals, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    } else {
+      numeric(0)
+    }
     risk_colors_full <- c("#FDECEA", "#FAD5D1", "#F3B3AA", "#E78F82")
     risk_colors <- risk_colors_full[seq_len(length(risk_cuts) + 1)]
 
@@ -262,7 +275,7 @@ overview_server <- function(input, output, session, shipments) {
         color = "#7F1D1D",
         fontWeight = "700"
       )
-  })
+  }, server = FALSE)
 
   output$tbl_top_exposure <- renderDT({
     # CHANGED: simplified columns for faster homepage scanning
@@ -278,7 +291,20 @@ overview_server <- function(input, output, session, shipments) {
       ) %>%
       slice_head(n = 10)
 
-    exposure_cuts <- unique(as.numeric(stats::quantile(d$`Financial Exposure`, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    if (nrow(d) == 0) {
+      return(datatable(
+        tibble(Note = "No financial exposure data available."),
+        rownames = FALSE,
+        options = list(dom = "t", paging = FALSE, searching = FALSE, ordering = FALSE)
+      ))
+    }
+
+    exposure_vals <- d$`Financial Exposure`[is.finite(d$`Financial Exposure`)]
+    exposure_cuts <- if (length(exposure_vals) > 0) {
+      unique(as.numeric(stats::quantile(exposure_vals, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)))
+    } else {
+      numeric(0)
+    }
     exposure_colors_full <- c("#FFFBE6", "#FEF2C7", "#FDE68A", "#FCD34D")
     exposure_colors <- exposure_colors_full[seq_len(length(exposure_cuts) + 1)]
 
@@ -300,5 +326,5 @@ overview_server <- function(input, output, session, shipments) {
         color = "#6B4F00",
         fontWeight = "700"
       )
-  })
+  }, server = FALSE)
 }

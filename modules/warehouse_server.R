@@ -504,7 +504,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         backgroundColor = styleEqual(top_route, "#FDECEA"),
         fontWeight = styleEqual(top_route, "700")
       )
-  })
+  }, server = FALSE)
 
   selected_route <- reactive({
     d <- route_leaderboard_data()
