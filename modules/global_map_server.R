@@ -5,6 +5,41 @@ global_map_server <- function(input, output, session, shipments) {
   # ── Map style toggle ─────────────────────────────────────────
   map_style <- reactiveVal("Dark")
 
+  # Add resilient tile layers: OSM fallback plus selected style overlay.
+  add_base_tiles <- function(map_obj, style) {
+    map_obj <- map_obj %>%
+      addTiles(
+        urlTemplate = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        attribution = "&copy; OpenStreetMap contributors",
+        options = tileOptions(maxZoom = 19)
+      )
+
+    if (identical(style, "Dark")) {
+      map_obj <- map_obj %>%
+        addTiles(
+          urlTemplate = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+          attribution = "&copy; OpenStreetMap contributors &copy; CARTO",
+          options = tileOptions(maxZoom = 19)
+        )
+    } else if (identical(style, "Light")) {
+      map_obj <- map_obj %>%
+        addTiles(
+          urlTemplate = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+          attribution = "&copy; OpenStreetMap contributors &copy; CARTO",
+          options = tileOptions(maxZoom = 19)
+        )
+    } else if (identical(style, "Satellite")) {
+      map_obj <- map_obj %>%
+        addTiles(
+          urlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          attribution = "Tiles &copy; Esri",
+          options = tileOptions(maxZoom = 19)
+        )
+    }
+
+    map_obj
+  }
+
   observeEvent(input$map_style_choice, {
     map_style(input$map_style_choice)
   })
@@ -200,13 +235,6 @@ global_map_server <- function(input, output, session, shipments) {
       pal <- colorFactor(RISK_COLORS,
                          domain = c("Low", "Medium", "High"), ordered = TRUE)
 
-      tile_provider <- switch(style,
-        "Dark"      = providers$CartoDB.DarkMatter,
-        "Light"     = providers$CartoDB.Positron,
-        "Satellite" = providers$Esri.WorldImagery,
-        providers$CartoDB.DarkMatter
-      )
-
       vr <- range(d$shipment_value, na.rm = TRUE)
       if (vr[1] == vr[2]) {
         d$lw <- 3
@@ -225,7 +253,7 @@ global_map_server <- function(input, output, session, shipments) {
       )
 
       m <- leaflet(d) %>%
-        addProviderTiles(tile_provider) %>%
+        add_base_tiles(style = style) %>%
         setView(lng = 80, lat = 28, zoom = 2)
 
       # ── Arc routes with glow ────────────────────────────
@@ -356,7 +384,15 @@ global_map_server <- function(input, output, session, shipments) {
           )
         )
 
-      m
+      m %>%
+        htmlwidgets::onRender(
+          "function(el, x) {
+             var map = this;
+             setTimeout(function() {
+               if (map && map.invalidateSize) map.invalidateSize(true);
+             }, 120);
+           }"
+        )
 
     } else {
       # ── ggplot fallback ─────────────────────────────────
@@ -397,15 +433,8 @@ global_map_server <- function(input, output, session, shipments) {
   # ── Tile swap via proxy (preserves zoom/pan) ─────────────────
   observeEvent(map_style(), {
     if (HAS_LEAFLET) {
-      tile_provider <- switch(map_style(),
-        "Dark"      = providers$CartoDB.DarkMatter,
-        "Light"     = providers$CartoDB.Positron,
-        "Satellite" = providers$Esri.WorldImagery,
-        providers$CartoDB.DarkMatter
-      )
-      leafletProxy("route_map") %>%
-        clearTiles() %>%
-        addProviderTiles(tile_provider)
+      proxy <- leafletProxy("route_map") %>% clearTiles()
+      add_base_tiles(proxy, map_style())
     }
   }, ignoreInit = TRUE)
 

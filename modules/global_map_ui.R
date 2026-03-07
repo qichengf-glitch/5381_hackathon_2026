@@ -597,6 +597,30 @@ global_map_ui <- function() {
         100% { transform: scale(0.8); opacity: 0.6; }
       }
     ")),
+    tags$script(HTML("
+      (function() {
+        function invalidateRouteMap() {
+          if (!window.HTMLWidgets || !HTMLWidgets.find) return;
+          var widget = HTMLWidgets.find('#route_map');
+          if (!widget || typeof widget.getMap !== 'function') return;
+          var map = widget.getMap();
+          if (map && typeof map.invalidateSize === 'function') {
+            map.invalidateSize(true);
+          }
+        }
+
+        document.addEventListener('shown.bs.tab', function(evt) {
+          var label = ((evt && evt.target && evt.target.textContent) || '').trim();
+          if (label !== 'Global Map') return;
+          setTimeout(invalidateRouteMap, 150);
+          setTimeout(invalidateRouteMap, 450);
+        });
+
+        window.addEventListener('resize', function() {
+          setTimeout(invalidateRouteMap, 100);
+        });
+      })();
+    ")),
     div(
       class = "tab-stack map-fullbleed theme-dark",
 
