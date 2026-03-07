@@ -425,7 +425,16 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       theme(panel.grid.minor = element_blank())
 
     if (nrow(d) >= 4) {
-      p <- p + geom_smooth(method = "loess", se = FALSE, color = "#9E3126", linetype = "dashed", linewidth = 0.9)
+      p <- p + geom_smooth(
+        data = d,
+        mapping = aes(x = week, y = delay_rate, group = 1),
+        inherit.aes = FALSE,
+        method = "loess",
+        se = FALSE,
+        color = "#9E3126",
+        linetype = "dashed",
+        linewidth = 0.9
+      )
     }
 
     finalize_chart(p, tooltip = "text")
