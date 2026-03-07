@@ -94,7 +94,7 @@ load_supabase_env <- function() {
   for (env_path in env_candidates) {
     if (file.exists(env_path)) {
       if (requireNamespace("dotenv", quietly = TRUE)) {
-        dotenv::load_dot_env(env_path, override = TRUE)
+        dotenv::load_dot_env(env_path)
       } else {
         parse_env_fallback(env_path)
       }
