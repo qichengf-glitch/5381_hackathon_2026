@@ -23,6 +23,9 @@ RUN R -e "install.packages(c( \
   'plotly','leaflet','httr2','jsonlite','dotenv' \
 ), repos='https://cloud.r-project.org')"
 
+# Install leaflet separately and verify it loaded
+RUN R -e "install.packages('leaflet', repos='https://cloud.r-project.org'); if (!requireNamespace('leaflet', quietly=TRUE)) stop('leaflet failed to install')"
+
 COPY . /app
 
 EXPOSE 8080
