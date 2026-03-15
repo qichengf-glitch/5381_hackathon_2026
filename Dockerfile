@@ -1,4 +1,4 @@
-FROM rocker/shiny-verse:4.3.3
+FROM rocker/shiny-verse:4.4.2
 
 WORKDIR /app
 
@@ -23,8 +23,8 @@ RUN R -e "install.packages(c( \
   'plotly','leaflet','httr2','jsonlite','dotenv' \
 ), repos='https://cloud.r-project.org')"
 
-# Install leaflet separately and verify it loaded
-RUN R -e "install.packages('leaflet', repos='https://cloud.r-project.org'); if (!requireNamespace('leaflet', quietly=TRUE)) stop('leaflet failed to install')"
+# Verify leaflet installed successfully (fail build if not)
+RUN R -e "if (!requireNamespace('leaflet', quietly=TRUE)) stop('leaflet failed to install')"
 
 COPY . /app
 
