@@ -5,13 +5,18 @@ WORKDIR /app
 # Geospatial/system dependencies needed by leaflet -> sf/s2/terra/units on cloud builders
 RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake \
+  pkg-config \
   gdal-bin \
   libgdal-dev \
   libgeos-dev \
   libproj-dev \
   libudunits2-dev \
+  libsqlite3-dev \
   libabsl-dev \
   && rm -rf /var/lib/apt/lists/*
+
+# Install geospatial R deps first (units -> sf -> leaflet chain)
+RUN R -e "install.packages(c('units','sf'), repos='https://cloud.r-project.org')"
 
 # Avoid inherited local Makevars/CMAKE paths (e.g. macOS CMake path)
 ENV R_MAKEVARS_USER=/dev/null
