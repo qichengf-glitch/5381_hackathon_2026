@@ -1,35 +1,16 @@
-FROM rocker/shiny-verse:4.4.2
+FROM rocker/geospatial:4.4.2
 
 WORKDIR /app
 
-# Geospatial/system dependencies needed by leaflet -> sf/s2/terra/units on cloud builders
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  cmake \
-  pkg-config \
-  gdal-bin \
-  libgdal-dev \
-  libgeos-dev \
-  libproj-dev \
-  libudunits2-dev \
-  libsqlite3-dev \
-  libabsl-dev \
-  && rm -rf /var/lib/apt/lists/*
-
-# Install geospatial R deps first (units -> sf -> leaflet chain)
-RUN R -e "install.packages(c('units','sf'), repos='https://cloud.r-project.org')"
-
-# Avoid inherited local Makevars/CMAKE paths (e.g. macOS CMake path)
-ENV R_MAKEVARS_USER=/dev/null
-ENV CMAKE=/usr/bin/cmake
-
-# Install required R packages for this app
+# rocker/geospatial already includes: sf, terra, units, leaflet, raster, and all system deps
+# Only need to install the remaining app-specific packages
 RUN R -e "install.packages(c( \
   'shiny','bslib','DT','readxl','scales','lubridate','glue', \
-  'plotly','leaflet','httr2','jsonlite','dotenv' \
+  'plotly','httr2','jsonlite','dotenv' \
 ), repos='https://cloud.r-project.org')"
 
-# Verify leaflet installed successfully (fail build if not)
-RUN R -e "if (!requireNamespace('leaflet', quietly=TRUE)) stop('leaflet failed to install')"
+# Verify leaflet is available (it comes with rocker/geospatial)
+RUN R -e "if (!requireNamespace('leaflet', quietly=TRUE)) stop('leaflet not available')"
 
 COPY . /app
 
