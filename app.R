@@ -9,6 +9,16 @@ library(readxl)
 library(scales)
 library(lubridate)
 library(glue)
+library(future)
+library(promises)
+
+# Use multicore (fork) on Linux — workers inherit loaded packages & globals for free
+# Falls back to multisession on macOS/Windows for local dev
+if (.Platform$OS.type == "unix" && !grepl("darwin", R.version$os, ignore.case = TRUE)) {
+  plan(multicore, workers = 1)
+} else {
+  plan(multisession, workers = 1)
+}
 
 options(bslib.sass.cache = file.path(tempdir(), "bslib-sass-cache"))
 
@@ -39,31 +49,50 @@ ui <- ui_global()
 
 # Main Server
 server <- function(input, output, session) {
-  # Deferred data loading — UI shell renders immediately, data loads in background
-  data_rv <- reactiveVal(NULL)
-  historical_rv <- reactiveVal(NULL)
-  warehouse_status_rv <- reactiveVal(NULL)
-  data_loading <- reactiveVal(TRUE)
+  data_rv               <- reactiveVal(NULL)
+  historical_rv         <- reactiveVal(NULL)
+  warehouse_status_rv   <- reactiveVal(NULL)
+  data_loading          <- reactiveVal(TRUE)
 
-  # Load primary data after UI is flushed (non-blocking)
-  observe({
-    data_rv(load_shipment_data())
+  # ── Async primary data load ─────────────────────────────────────
+  # future_promise runs load_shipment_data() in a background process.
+  # multicore workers (Linux) inherit the parent's loaded packages and
+  # global functions, so no re-sourcing is needed.
+  future_promise({
+    load_shipment_data()
+  }) %...>% (function(data) {
+    data_rv(data)
     data_loading(FALSE)
-  }, once = TRUE)
+  }) %...!% (function(e) {
+    warning("Async primary data load failed: ", conditionMessage(e), call. = FALSE)
+    data_rv(generate_mock_shipments())
+    data_loading(FALSE)
+  })
 
   shipments <- reactive({
     req(data_rv())
     data_rv()
   })
 
-  # Load secondary data after primary is ready
+  # ── Async secondary data load (after primary is ready) ──────────
   observe({
     base <- shipments()
-    historical_rv(load_historical_data(base_shipments = base))
-    warehouse_status_rv(load_warehouse_status_data(base_shipments = base))
+    future_promise({
+      list(
+        historical = load_historical_data(base_shipments = base),
+        warehouse  = load_warehouse_status_data(base_shipments = base)
+      )
+    }) %...>% (function(result) {
+      historical_rv(result$historical)
+      warehouse_status_rv(result$warehouse)
+    }) %...!% (function(e) {
+      warning("Async secondary data load failed: ", conditionMessage(e), call. = FALSE)
+      historical_rv(derive_historical_from_shipments(base))
+      warehouse_status_rv(derive_warehouse_from_shipments(base))
+    })
   })
 
-  # Loading overlay — hidden once data arrives
+  # ── Loading overlay — shows until primary data arrives ──────────
   output$loading_overlay <- renderUI({
     if (isTRUE(data_loading())) {
       div(
@@ -89,27 +118,27 @@ server <- function(input, output, session) {
     warehouse_status_rv()
   })
 
-  # Load and initialize server modules
+  # ── Load and initialize server modules ──────────────────────────
   source("modules/overview_server.R", local = TRUE)
   overview_server(input, output, session, shipments)
-  
+
   source("modules/global_map_server.R", local = TRUE)
   global_map_server(input, output, session, shipments)
-  
+
   source("modules/risk_monitor_server.R", local = TRUE)
   risk_monitor_server(input, output, session, shipments)
-  
+
   source("modules/financial_server_financialRisk.R", local = TRUE)
   financial_server(input, output, session, shipments)
-  
+
   source("modules/warehouse_server.R", local = TRUE)
   warehouse_base <- warehouse_server(
     input, output, session,
-    shipments = shipments,
-    historical_shipments = historical_shipments,
+    shipments               = shipments,
+    historical_shipments    = historical_shipments,
     warehouse_status_by_cargo = warehouse_status_by_cargo
   )
-  
+
   source("modules/copilot_server.R", local = TRUE)
   copilot_server(input, output, session, shipments, warehouse_base)
 }

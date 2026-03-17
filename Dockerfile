@@ -6,7 +6,7 @@ WORKDIR /app
 # Only need to install the remaining app-specific packages
 RUN R -e "install.packages(c( \
   'shiny','bslib','DT','readxl','scales','lubridate','glue', \
-  'plotly','httr2','jsonlite','dotenv' \
+  'plotly','httr2','jsonlite','dotenv','future','promises' \
 ), repos='https://cloud.r-project.org')"
 
 # Verify leaflet is available (it comes with rocker/geospatial)
