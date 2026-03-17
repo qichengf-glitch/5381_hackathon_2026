@@ -39,71 +39,83 @@ source("modules/financial_ui_financialRisk.R")
 source("modules/warehouse_ui.R")
 source("modules/copilot_ui.R")
 
+# ── Global data cache (shared across ALL sessions) ──────────────────────────
+# Data loads ONCE in the background. Every session polls this cache instead of
+# making its own Supabase request. This means:
+#   - First visit: waits for Supabase cold-start (~2 min) once
+#   - All later visits: instant data from cache
+.app_cache <- new.env(parent = emptyenv())
+.app_cache$shipments  <- NULL
+.app_cache$historical <- NULL
+.app_cache$warehouse  <- NULL
+.app_cache$ready      <- FALSE
+
+# Kick off the background fetch immediately at app startup
+future({
+  suppressPackageStartupMessages({
+    library(dplyr); library(tibble); library(tidyr); library(purrr)
+    library(lubridate); library(scales); library(glue)
+    library(httr2); library(jsonlite); library(readxl); library(dotenv)
+  })
+  setwd("/app")
+  source("constants.R")
+  source("utils.R")
+  ships <- load_shipment_data()
+  list(
+    shipments  = ships,
+    historical = load_historical_data(base_shipments = ships),
+    warehouse  = load_warehouse_status_data(base_shipments = ships)
+  )
+}) %...>% (function(result) {
+  .app_cache$shipments  <- result$shipments
+  .app_cache$historical <- result$historical
+  .app_cache$warehouse  <- result$warehouse
+  .app_cache$ready      <- TRUE
+  message("[cache] Data loaded: ", nrow(result$shipments), " shipments")
+}) %...!% (function(e) {
+  warning("[cache] Load failed, using mock data: ", conditionMessage(e), call. = FALSE)
+  ships <- generate_mock_shipments()
+  .app_cache$shipments  <- ships
+  .app_cache$historical <- derive_historical_from_shipments(ships)
+  .app_cache$warehouse  <- derive_warehouse_from_shipments(ships)
+  .app_cache$ready      <- TRUE
+})
+
 # Main UI
 ui <- ui_global()
 
 # Main Server
 server <- function(input, output, session) {
-  data_rv               <- reactiveVal(NULL)
-  historical_rv         <- reactiveVal(NULL)
-  warehouse_status_rv   <- reactiveVal(NULL)
-  data_loading          <- reactiveVal(TRUE)
 
-  # ── Async primary data load ─────────────────────────────────────
-  # multisession workers are fresh R sessions — must reload packages & sources.
-  future_promise({
-    suppressPackageStartupMessages({
-      library(dplyr); library(tibble); library(tidyr); library(purrr)
-      library(lubridate); library(scales); library(glue)
-      library(httr2); library(jsonlite); library(readxl); library(dotenv)
-    })
-    setwd("/app")
-    source("constants.R")
-    source("utils.R")
-    load_shipment_data()
-  }) %...>% (function(data) {
-    data_rv(data)
-    data_loading(FALSE)
-  }) %...!% (function(e) {
-    warning("Async primary data load failed: ", conditionMessage(e), call. = FALSE)
-    data_rv(generate_mock_shipments())
-    data_loading(FALSE)
-  })
+  # ── Poll global cache every 800ms until data is ready ──────────
+  cache_ready <- reactivePoll(
+    intervalMillis = 800,
+    session        = session,
+    checkFunc      = function() .app_cache$ready,
+    valueFunc      = function() .app_cache$ready
+  )
 
   shipments <- reactive({
-    req(data_rv())
-    data_rv()
+    req(cache_ready())
+    req(.app_cache$shipments)
+    .app_cache$shipments
   })
 
-  # ── Async secondary data load (after primary is ready) ──────────
-  observe({
-    base <- shipments()
-    future_promise({
-      suppressPackageStartupMessages({
-        library(dplyr); library(tibble); library(tidyr); library(purrr)
-        library(lubridate); library(scales); library(glue)
-        library(httr2); library(jsonlite); library(readxl); library(dotenv)
-      })
-      setwd("/app")
-      source("constants.R")
-      source("utils.R")
-      list(
-        historical = load_historical_data(base_shipments = base),
-        warehouse  = load_warehouse_status_data(base_shipments = base)
-      )
-    }) %...>% (function(result) {
-      historical_rv(result$historical)
-      warehouse_status_rv(result$warehouse)
-    }) %...!% (function(e) {
-      warning("Async secondary data load failed: ", conditionMessage(e), call. = FALSE)
-      historical_rv(derive_historical_from_shipments(base))
-      warehouse_status_rv(derive_warehouse_from_shipments(base))
-    })
+  historical_shipments <- reactive({
+    req(cache_ready())
+    req(.app_cache$historical)
+    .app_cache$historical
   })
 
-  # ── Loading overlay — shows until primary data arrives ──────────
+  warehouse_status_by_cargo <- reactive({
+    req(cache_ready())
+    req(.app_cache$warehouse)
+    .app_cache$warehouse
+  })
+
+  # ── Loading overlay — shown while cache is not yet ready ────────
   output$loading_overlay <- renderUI({
-    if (isTRUE(data_loading())) {
+    if (!isTRUE(cache_ready())) {
       div(
         id = "app-loading-overlay",
         style = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(10,10,20,0.92);",
@@ -115,16 +127,6 @@ server <- function(input, output, session) {
         )
       )
     }
-  })
-
-  historical_shipments <- reactive({
-    req(historical_rv())
-    historical_rv()
-  })
-
-  warehouse_status_by_cargo <- reactive({
-    req(warehouse_status_rv())
-    warehouse_status_rv()
   })
 
   # ── Load and initialize server modules ──────────────────────────
@@ -143,8 +145,8 @@ server <- function(input, output, session) {
   source("modules/warehouse_server.R", local = TRUE)
   warehouse_base <- warehouse_server(
     input, output, session,
-    shipments               = shipments,
-    historical_shipments    = historical_shipments,
+    shipments                 = shipments,
+    historical_shipments      = historical_shipments,
     warehouse_status_by_cargo = warehouse_status_by_cargo
   )
 
