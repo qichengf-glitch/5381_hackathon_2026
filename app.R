@@ -12,13 +12,8 @@ library(glue)
 library(future)
 library(promises)
 
-# Use multicore (fork) on Linux — workers inherit loaded packages & globals for free
-# Falls back to multisession on macOS/Windows for local dev
-if (.Platform$OS.type == "unix" && !grepl("darwin", R.version$os, ignore.case = TRUE)) {
-  plan(multicore, workers = 1)
-} else {
-  plan(multisession, workers = 1)
-}
+# multisession: new R process per worker — safe with Shiny/httpuv (no fork issues)
+plan(multisession, workers = 1)
 
 options(bslib.sass.cache = file.path(tempdir(), "bslib-sass-cache"))
 
@@ -55,10 +50,16 @@ server <- function(input, output, session) {
   data_loading          <- reactiveVal(TRUE)
 
   # ── Async primary data load ─────────────────────────────────────
-  # future_promise runs load_shipment_data() in a background process.
-  # multicore workers (Linux) inherit the parent's loaded packages and
-  # global functions, so no re-sourcing is needed.
+  # multisession workers are fresh R sessions — must reload packages & sources.
   future_promise({
+    suppressPackageStartupMessages({
+      library(dplyr); library(tibble); library(tidyr); library(purrr)
+      library(lubridate); library(scales); library(glue)
+      library(httr2); library(jsonlite); library(readxl); library(dotenv)
+    })
+    setwd("/app")
+    source("constants.R")
+    source("utils.R")
     load_shipment_data()
   }) %...>% (function(data) {
     data_rv(data)
@@ -78,6 +79,14 @@ server <- function(input, output, session) {
   observe({
     base <- shipments()
     future_promise({
+      suppressPackageStartupMessages({
+        library(dplyr); library(tibble); library(tidyr); library(purrr)
+        library(lubridate); library(scales); library(glue)
+        library(httr2); library(jsonlite); library(readxl); library(dotenv)
+      })
+      setwd("/app")
+      source("constants.R")
+      source("utils.R")
       list(
         historical = load_historical_data(base_shipments = base),
         warehouse  = load_warehouse_status_data(base_shipments = base)
