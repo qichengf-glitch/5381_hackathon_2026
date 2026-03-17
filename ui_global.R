@@ -260,6 +260,7 @@ ui_global <- function() {
         )
       )
     ),
+    uiOutput("loading_overlay"),
     page_navbar(
       title = "RiskRoute AI",
       theme = bs_theme(

@@ -256,37 +256,47 @@ global_map_server <- function(input, output, session, shipments) {
         add_base_tiles(style = style) %>%
         setView(lng = 80, lat = 28, zoom = 2)
 
-      # ── Arc routes with glow ────────────────────────────
-      for (i in seq_len(nrow(d))) {
-        arc <- make_arc(d$origin_lat[i], d$origin_lng[i],
-                        d$dest_lat[i],   d$dest_lng[i])
-        rc <- pal(d$risk_level[i])
-        w  <- d$lw[i]
+      # ── Aggregated arc routes (one per unique origin→destination) ──
+      route_agg <- d %>%
+        group_by(origin, destination, origin_lat, origin_lng, dest_lat, dest_lng) %>%
+        summarise(
+          n_shipments = n(),
+          max_risk_level = factor(
+            c("Low", "Medium", "High")[max(as.integer(risk_level))],
+            levels = c("Low", "Medium", "High")
+          ),
+          avg_risk = mean(risk_score, na.rm = TRUE),
+          total_exposure = sum(financial_exposure, na.rm = TRUE),
+          methods = paste(sort(unique(shipping_method)), collapse = ", "),
+          .groups = "drop"
+        ) %>%
+        mutate(lw = 1.5 + pmin(n_shipments / max(n_shipments), 1) * 4.5)
 
-        m <- m %>% addPolylines(
-          lng = arc$lng, lat = arc$lat,
-          color = rc, weight = w * 2.5, opacity = 0.12,
-          group = "routes"
-        )
+      for (i in seq_len(nrow(route_agg))) {
+        r <- route_agg[i, ]
+        arc <- make_arc(r$origin_lat, r$origin_lng, r$dest_lat, r$dest_lng)
+        rc <- pal(r$max_risk_level)
+        w <- r$lw
 
         lbl_html <- HTML(paste0(
           '<div style="background:', lbl_bg, ';color:', lbl_fg,
           ';border:1px solid ', lbl_bd,
           ';padding:6px 10px;border-radius:6px;font-size:13px;">',
-          '<b>', d$origin[i], ' &rarr; ', d$destination[i], '</b><br>',
-          '<span style="opacity:.6">Method:</span> ', d$shipping_method[i], '<br>',
-          '<span style="opacity:.6">Risk:</span> ',   round(d$risk_score[i], 2),
-          ' <span style="color:', rc, ';">&bull;</span> ', d$risk_level[i], '<br>',
-          '<span style="opacity:.6">Exposure:</span> ', dollar(d$financial_exposure[i]),
+          '<b>', r$origin, ' &rarr; ', r$destination, '</b><br>',
+          '<span style="opacity:.6">Shipments:</span> ', r$n_shipments, '<br>',
+          '<span style="opacity:.6">Methods:</span> ', r$methods, '<br>',
+          '<span style="opacity:.6">Avg Risk:</span> ', round(r$avg_risk, 2),
+          ' <span style="color:', rc, ';">&bull;</span> ', r$max_risk_level, '<br>',
+          '<span style="opacity:.6">Total Exposure:</span> ', dollar(r$total_exposure),
           '</div>'
         ))
 
         m <- m %>% addPolylines(
           lng = arc$lng, lat = arc$lat,
-          color   = rc, weight = w, opacity = 0.7,
+          color = rc, weight = w, opacity = 0.7,
           group = "routes",
-          layerId = paste0("route_", d$shipment_id[i]),
-          label   = lbl_html, labelOptions = lbl_opt,
+          layerId = paste0("route_agg_", i),
+          label = lbl_html, labelOptions = lbl_opt,
           highlightOptions = highlightOptions(
             weight = w + 3, opacity = 1, bringToFront = TRUE
           )
@@ -512,14 +522,19 @@ global_map_server <- function(input, output, session, shipments) {
     observeEvent(input$route_map_shape_click, {
       clicked <- input$route_map_shape_click
       if (is.null(clicked$id)) return()
-      id_val <- str_remove(clicked$id, "^(route_|dest_|veh_)")
+      id_str <- clicked$id
+      # Aggregated route clicks (route_agg_*) — ignore, detail shown in label
+      if (grepl("^route_agg_", id_str)) return()
+      id_val <- str_remove(id_str, "^(route_|dest_|veh_)")
       selected_map_shipment(as.integer(id_val))
     })
     # marker_click: vehicle divIcon markers + awesome markers
     observeEvent(input$route_map_marker_click, {
       clicked <- input$route_map_marker_click
       if (is.null(clicked$id)) return()
-      id_val <- str_remove(clicked$id, "^(route_|dest_|veh_)")
+      id_str <- clicked$id
+      if (grepl("^route_agg_", id_str)) return()
+      id_val <- str_remove(id_str, "^(route_|dest_|veh_)")
       selected_map_shipment(as.integer(id_val))
     })
   }

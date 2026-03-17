@@ -125,7 +125,7 @@ supabase_key <- function() {
   Sys.getenv("SUPABASE_ANON_KEY")
 }
 
-fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000) {
+fetch_supabase_table <- function(table_name, page_size = 5000, max_rows = 200000) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     stop("Package 'httr2' is required for Supabase integration.")
   }
@@ -156,7 +156,7 @@ fetch_supabase_table <- function(table_name, page_size = 1000, max_rows = 200000
         apikey = key,
         Authorization = paste("Bearer", key)
       ) %>%
-      httr2::req_timeout(seconds = 8)
+      httr2::req_timeout(seconds = 30)
 
     resp <- httr2::req_perform(req)
     txt <- httr2::resp_body_string(resp)

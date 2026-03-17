@@ -39,20 +39,44 @@ ui <- ui_global()
 
 # Main Server
 server <- function(input, output, session) {
-  # Load data from Supabase only
-  data_rv <- reactiveVal(load_shipment_data())
+  # Deferred data loading — UI shell renders immediately, data loads in background
+  data_rv <- reactiveVal(NULL)
   historical_rv <- reactiveVal(NULL)
   warehouse_status_rv <- reactiveVal(NULL)
+  data_loading <- reactiveVal(TRUE)
+
+  # Load primary data after UI is flushed (non-blocking)
+  observe({
+    data_rv(load_shipment_data())
+    data_loading(FALSE)
+  }, once = TRUE)
 
   shipments <- reactive({
     req(data_rv())
     data_rv()
   })
 
+  # Load secondary data after primary is ready
   observe({
     base <- shipments()
     historical_rv(load_historical_data(base_shipments = base))
     warehouse_status_rv(load_warehouse_status_data(base_shipments = base))
+  })
+
+  # Loading overlay — hidden once data arrives
+  output$loading_overlay <- renderUI({
+    if (isTRUE(data_loading())) {
+      div(
+        id = "app-loading-overlay",
+        style = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(10,10,20,0.92);",
+        div(style = "text-align:center;color:#E0E0E0;",
+          div(style = "width:48px;height:48px;border:3px solid rgba(255,255,255,0.1);border-top-color:#00BCD4;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"),
+          tags$style("@keyframes spin{to{transform:rotate(360deg)}}"),
+          div(style = "font-size:16px;font-weight:600;", "Loading RiskRoute AI..."),
+          div(style = "font-size:13px;opacity:0.6;margin-top:6px;", "Fetching shipment data from database")
+        )
+      )
+    }
   })
 
   historical_shipments <- reactive({
