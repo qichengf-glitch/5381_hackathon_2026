@@ -267,14 +267,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     d <- d %>%
       mutate(
-        hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE),
-        .tooltip = paste0(
-          as.character(hub),
-          "\nUtilization: ", round(utilization, 1), "%",
-          "\nPredicted: ", round(predicted_utilization, 1), "%",
-          "\nStress: ", utilization_band,
-          "\nShipments: ", comma(shipments)
-        )
+        hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE)
       )
 
     p <- ggplot(
@@ -282,8 +275,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       aes(
         x = hub,
         y = utilization,
-        fill = utilization_band,
-        text = .tooltip
+        fill = utilization_band
       )
     ) +
       geom_col(width = 0.48) +
@@ -363,22 +355,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No route reliability data for current filters."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        "Route: ", as.character(route),
-        "\nShipments: ", comma(shipments),
-        "\nDelay Rate: ", percent(delay_rate, accuracy = 0.1),
-        "\nReliability: ", percent(reliability, accuracy = 0.1),
-        "\nAvg Risk: ", round(avg_risk, 2)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = shipments,
         y = reliability,
-        color = delay_rate,
-        text = .tooltip
+        color = delay_rate
       )
     ) +
       geom_point(size = 3.4, alpha = 0.8) +
@@ -408,20 +390,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No delay trend data for current filters."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        format(week, "%d %b %Y"),
-        "\nDelay Rate: ", percent(delay_rate, accuracy = 0.1),
-        "\nShipments: ", comma(shipments)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = week,
         y = delay_rate,
-        group = 1,
-        text = .tooltip
+        group = 1
       )
     ) +
       geom_line(color = "#C6473B", linewidth = 1.05) +
@@ -434,7 +408,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     if (nrow(d) >= 4) {
       p <- p + geom_smooth(
         data = d,
-        mapping = aes(x = week, y = delay_rate, group = 1, text = .tooltip),
+        mapping = aes(x = week, y = delay_rate, group = 1),
         inherit.aes = FALSE,
         method = "loess",
         se = FALSE,
@@ -619,21 +593,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     y_color <- if (metric == "avg_risk") "#6E7E31" else "#C6473B"
     validate(need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        format(week, "%d %b %Y"),
-        "\n", y_label, ": ",
-        if (y_col == "delay_rate") percent(.data[[y_col]], accuracy = 0.1) else round(.data[[y_col]], 2),
-        "\nShipments: ", comma(shipments)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = week,
         y = .data[[y_col]],
-        group = 1,
-        text = .tooltip
+        group = 1
       )
     ) +
       geom_line(color = y_color, linewidth = 1.1) +
