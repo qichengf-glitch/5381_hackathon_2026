@@ -250,20 +250,35 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$warehouse_utilization_plot <- renderChartSafe({
-    d <- warehouse_base() %>%
-      mutate(
-        hub = as.character(hub),
-        utilization = as.numeric(utilization),
-        predicted_utilization = as.numeric(predicted_utilization),
-        shipments = as.numeric(shipments),
-        utilization_band = as.character(utilization_band)
-      ) %>%
-      filter(!is.na(hub), nzchar(hub), !is.na(utilization)) %>%
-      arrange(desc(utilization)) %>%
-      distinct(hub, .keep_all = TRUE)
+  output$warehouse_utilization_plot <- shiny::renderPlot({
+    # DEBUG: minimal test to isolate error source
+    message("[DEBUG] warehouse_utilization_plot: START")
 
-    validate(need(nrow(d) > 0, "No hub data for current filters."))
+    d <- tryCatch(
+      warehouse_base() %>%
+        mutate(
+          hub = as.character(hub),
+          utilization = as.numeric(utilization),
+          predicted_utilization = as.numeric(predicted_utilization),
+          shipments = as.numeric(shipments),
+          utilization_band = as.character(utilization_band)
+        ) %>%
+        filter(!is.na(hub), nzchar(hub), !is.na(utilization)) %>%
+        arrange(desc(utilization)) %>%
+        distinct(hub, .keep_all = TRUE),
+      error = function(e) {
+        message("[DEBUG] warehouse_utilization_plot data error: ", e$message)
+        NULL
+      }
+    )
+
+    if (is.null(d) || nrow(d) == 0) {
+      plot.new()
+      text(0.5, 0.5, "No data available", cex = 1.5)
+      return(invisible(NULL))
+    }
+
+    message("[DEBUG] warehouse_utilization_plot: data OK, ", nrow(d), " rows")
 
     d <- d %>%
       mutate(
@@ -291,8 +306,9 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         legend.text = element_text(size = 10)
       )
 
+    message("[DEBUG] warehouse_utilization_plot: ggplot built OK, printing")
     p
-  })
+  }, res = 110)
 
   output$capacity_stress_cards <- renderUI({
     d <- warehouse_base() %>%
@@ -338,7 +354,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$route_reliability_trend <- renderChartSafe({
+  output$route_reliability_trend <- shiny::renderPlot({
     d <- historical_filtered() %>%
       mutate(route = if_else(is.na(route) | !nzchar(route), paste(origin, destination, sep = " \u2192 "), route)) %>%
       group_by(route) %>%
@@ -371,9 +387,9 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       theme(panel.grid.minor = element_blank())
 
     p
-  })
+  }, res = 110)
 
-  output$delay_trend_plot <- renderChartSafe({
+  output$delay_trend_plot <- shiny::renderPlot({
     d <- historical_filtered() %>%
       mutate(week = floor_date(departure_dt, unit = "week")) %>%
       group_by(week) %>%
@@ -419,7 +435,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     }
 
     p
-  })
+  }, res = 110)
 
   route_leaderboard_data <- reactive({
     current_hist <- historical_for_charts()
@@ -584,7 +600,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$route_drilldown_trend <- renderChartSafe({
+  output$route_drilldown_trend <- shiny::renderPlot({
     d <- route_drilldown_weekly()
     r <- selected_route()
     metric <- ifelse(isTruthy(input$wh_route_metric), input$wh_route_metric, "delay_rate")
@@ -614,7 +630,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     }
 
     p
-  })
+  }, res = 110)
 
   output$route_drilldown_insights <- renderUI({
     d <- route_drilldown_weekly()
