@@ -270,19 +270,22 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE)
       )
 
+    d <- d %>%
+      mutate(.tooltip = paste0(
+        as.character(hub),
+        "<br>Utilization: ", round(utilization, 1), "%",
+        "<br>Predicted: ", round(predicted_utilization, 1), "%",
+        "<br>Stress: ", utilization_band,
+        "<br>Shipments: ", comma(shipments)
+      ))
+
     p <- ggplot(
       d,
       aes(
         x = hub,
         y = utilization,
         fill = utilization_band,
-        text = paste(
-          hub,
-          "<br>Utilization:", round(utilization, 1), "%",
-          "<br>Predicted:", round(predicted_utilization, 1), "%",
-          "<br>Stress:", utilization_band,
-          "<br>Shipments:", comma(shipments)
-        )
+        text = .tooltip
       )
     ) +
       geom_col(width = 0.48) +
@@ -362,19 +365,22 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No route reliability data for current filters."))
 
+    d <- d %>%
+      mutate(.tooltip = paste0(
+        "Route: ", as.character(route),
+        "<br>Shipments: ", comma(shipments),
+        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
+        "<br>Reliability: ", percent(reliability, accuracy = 0.1),
+        "<br>Avg Risk: ", round(avg_risk, 2)
+      ))
+
     p <- ggplot(
       d,
       aes(
         x = shipments,
         y = reliability,
         color = delay_rate,
-        text = paste(
-          "Route:", route,
-          "<br>Shipment Count:", comma(shipments),
-          "<br>Delay Rate:", percent(delay_rate, accuracy = 0.1),
-          "<br>Route Reliability:", percent(reliability, accuracy = 0.1),
-          "<br>Average Risk Score:", round(avg_risk, 2)
-        )
+        text = .tooltip
       )
     ) +
       geom_point(size = 3.4, alpha = 0.8) +
@@ -404,17 +410,20 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No delay trend data for current filters."))
 
+    d <- d %>%
+      mutate(.tooltip = paste0(
+        format(week, "%d %b %Y"),
+        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
+        "<br>Shipments: ", comma(shipments)
+      ))
+
     p <- ggplot(
       d,
       aes(
         x = week,
         y = delay_rate,
         group = 1,
-        text = paste(
-          format(week, "%d %b %Y"),
-          "<br>Delay Rate:", percent(delay_rate, accuracy = 0.1),
-          "<br>Shipments:", comma(shipments)
-        )
+        text = .tooltip
       )
     ) +
       geom_line(color = "#C6473B", linewidth = 1.05) +
@@ -612,19 +621,22 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     y_color <- if (metric == "avg_risk") "#6E7E31" else "#C6473B"
     validate(need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
 
+    d <- d %>%
+      mutate(.tooltip = paste0(
+        as.character(r),
+        "<br>Week: ", format(week, "%d %b %Y"),
+        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
+        "<br>Shipments: ", comma(shipments),
+        "<br>Avg Risk: ", round(avg_risk, 2)
+      ))
+
     p <- ggplot(
       d,
       aes(
         x = week,
         y = .data[[y_col]],
         group = 1,
-        text = paste(
-          r,
-          "<br>Week:", format(week, "%d %b %Y"),
-          "<br>Delay Rate:", percent(delay_rate, accuracy = 0.1),
-          "<br>Shipments:", comma(shipments),
-          "<br>Avg Risk:", round(avg_risk, 2)
-        )
+        text = .tooltip
       )
     ) +
       geom_line(color = y_color, linewidth = 1.1) +
