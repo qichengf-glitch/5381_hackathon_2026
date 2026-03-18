@@ -250,7 +250,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$warehouse_utilization_plot <- renderChart({
+  output$warehouse_utilization_plot <- renderChartSafe({
     d <- warehouse_base() %>%
       mutate(
         hub = as.character(hub),
@@ -299,7 +299,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         legend.text = element_text(size = 10)
       )
 
-    finalize_chart(p, tooltip = "text")
+    p
   })
 
   output$capacity_stress_cards <- renderUI({
@@ -346,7 +346,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$route_reliability_trend <- renderChart({
+  output$route_reliability_trend <- renderChartSafe({
     d <- historical_filtered() %>%
       mutate(route = if_else(is.na(route) | !nzchar(route), paste(origin, destination, sep = " \u2192 "), route)) %>%
       group_by(route) %>%
@@ -388,10 +388,10 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
 
-    finalize_chart(p, tooltip = "text")
+    p
   })
 
-  output$delay_trend_plot <- renderChart({
+  output$delay_trend_plot <- renderChartSafe({
     d <- historical_filtered() %>%
       mutate(week = floor_date(departure_dt, unit = "week")) %>%
       group_by(week) %>%
@@ -444,7 +444,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       )
     }
 
-    finalize_chart(p, tooltip = "text")
+    p
   })
 
   route_leaderboard_data <- reactive({
@@ -610,7 +610,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     )
   })
 
-  output$route_drilldown_trend <- renderChart({
+  output$route_drilldown_trend <- renderChartSafe({
     d <- route_drilldown_weekly()
     r <- selected_route()
     metric <- ifelse(isTruthy(input$wh_route_metric), input$wh_route_metric, "delay_rate")
@@ -648,7 +648,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       p <- p + scale_y_continuous(labels = number_format(accuracy = 0.01))
     }
 
-    finalize_chart(p, tooltip = "text")
+    p
   })
 
   output$route_drilldown_insights <- renderUI({

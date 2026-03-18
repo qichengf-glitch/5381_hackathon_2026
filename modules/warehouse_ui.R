@@ -87,7 +87,7 @@ warehouse_ui <- function() {
       card(
         class = "rr-card",
         card_header("A. Regional Hub Utilization"),
-        chartOutput("warehouse_utilization_plot", height = 245)
+        chartOutputSafe("warehouse_utilization_plot", height = "245px")
       ),
       card(
         class = "rr-card",
@@ -100,12 +100,12 @@ warehouse_ui <- function() {
       card(
         class = "rr-card",
         card_header("C. Top Routes Reliability Scatter"),
-        chartOutput("route_reliability_trend", height = 300)
+        chartOutputSafe("route_reliability_trend", height = "300px")
       ),
       card(
         class = "rr-card",
         card_header("D. Network Delay Trend (Last 12 Weeks)"),
-        chartOutput("delay_trend_plot", height = 300)
+        chartOutputSafe("delay_trend_plot", height = "300px")
       )
     ),
     card(
@@ -125,7 +125,7 @@ warehouse_ui <- function() {
           selected = "delay_rate",
           inline = TRUE
         ),
-        chartOutput("route_drilldown_trend", height = 290)
+        chartOutputSafe("route_drilldown_trend", height = "290px")
       ),
       card(
         class = "rr-card",

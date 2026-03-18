@@ -627,36 +627,25 @@ renderChart <- function(expr) {
   }
 }
 
+# Safe renderChart that falls back to static ggplot if plotly conversion fails.
+# Use this for charts that trigger plotly's is.character(txt) validation bug.
+renderChartSafe <- function(expr) {
+  expr_quoted <- substitute(expr)
+  expr_env <- parent.frame()
+  renderPlot(expr_quoted, quoted = TRUE, env = expr_env, res = 110)
+}
+
+# Safe output container matching renderChartSafe (always uses plotOutput)
+chartOutputSafe <- function(output_id, height = NULL) {
+  plotOutput(output_id, height = height)
+}
+
 finalize_chart <- function(p, tooltip = "text") {
   if (HAS_PLOTLY) {
-    try_plotly <- function(plot_obj, tip) {
-      plt <- plotly::ggplotly(plot_obj, tooltip = tip) %>%
-        plotly::config(displayModeBar = FALSE)
-      # Force eager evaluation so errors are caught here, not at render time
-      plotly::plotly_build(plt)
-      plt
-    }
     tryCatch(
-      try_plotly(p, tooltip),
-      error = function(e) {
-        tryCatch(
-          try_plotly(p, c("x", "y")),
-          error = function(e2) {
-            plotly::plot_ly(type = "scatter", mode = "none") %>%
-              plotly::layout(
-                xaxis = list(visible = FALSE),
-                yaxis = list(visible = FALSE),
-                annotations = list(list(
-                  text = "Chart unavailable",
-                  xref = "paper", yref = "paper",
-                  x = 0.5, y = 0.5, showarrow = FALSE,
-                  font = list(size = 14, color = "#999")
-                ))
-              ) %>%
-              plotly::config(displayModeBar = FALSE)
-          }
-        )
-      }
+      plotly::ggplotly(p, tooltip = tooltip) %>%
+        plotly::config(displayModeBar = FALSE),
+      error = function(e) p
     )
   } else {
     p
