@@ -629,13 +629,18 @@ renderChart <- function(expr) {
 
 finalize_chart <- function(p, tooltip = "text") {
   if (HAS_PLOTLY) {
+    try_plotly <- function(plot_obj, tip) {
+      plt <- plotly::ggplotly(plot_obj, tooltip = tip) %>%
+        plotly::config(displayModeBar = FALSE)
+      # Force eager evaluation so errors are caught here, not at render time
+      plotly::plotly_build(plt)
+      plt
+    }
     tryCatch(
-      plotly::ggplotly(p, tooltip = tooltip) %>%
-        plotly::config(displayModeBar = FALSE),
+      try_plotly(p, tooltip),
       error = function(e) {
         tryCatch(
-          plotly::ggplotly(p, tooltip = c("x", "y")) %>%
-            plotly::config(displayModeBar = FALSE),
+          try_plotly(p, c("x", "y")),
           error = function(e2) {
             plotly::plot_ly(type = "scatter", mode = "none") %>%
               plotly::layout(
