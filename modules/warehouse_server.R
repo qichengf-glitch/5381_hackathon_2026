@@ -270,22 +270,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE)
       )
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        as.character(hub),
-        "<br>Utilization: ", round(utilization, 1), "%",
-        "<br>Predicted: ", round(predicted_utilization, 1), "%",
-        "<br>Stress: ", utilization_band,
-        "<br>Shipments: ", comma(shipments)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = hub,
         y = utilization,
-        fill = utilization_band,
-        text = .tooltip
+        fill = utilization_band
       )
     ) +
       geom_col(width = 0.48) +
@@ -301,7 +291,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         legend.text = element_text(size = 10)
       )
 
-    finalize_chart(p, tooltip = "text")
+    finalize_chart(p)
   })
 
   output$capacity_stress_cards <- renderUI({
@@ -365,22 +355,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No route reliability data for current filters."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        "Route: ", as.character(route),
-        "<br>Shipments: ", comma(shipments),
-        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
-        "<br>Reliability: ", percent(reliability, accuracy = 0.1),
-        "<br>Avg Risk: ", round(avg_risk, 2)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = shipments,
         y = reliability,
-        color = delay_rate,
-        text = .tooltip
+        color = delay_rate
       )
     ) +
       geom_point(size = 3.4, alpha = 0.8) +
@@ -390,7 +370,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       theme_minimal(base_size = 13) +
       theme(panel.grid.minor = element_blank())
 
-    finalize_chart(p, tooltip = "text")
+    finalize_chart(p)
   })
 
   output$delay_trend_plot <- renderChart({
@@ -410,20 +390,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
     validate(need(nrow(d) > 0, "No delay trend data for current filters."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        format(week, "%d %b %Y"),
-        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
-        "<br>Shipments: ", comma(shipments)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = week,
         y = delay_rate,
-        group = 1,
-        text = .tooltip
+        group = 1
       )
     ) +
       geom_line(color = "#C6473B", linewidth = 1.05) +
@@ -446,7 +418,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       )
     }
 
-    finalize_chart(p, tooltip = "text")
+    finalize_chart(p)
   })
 
   route_leaderboard_data <- reactive({
@@ -621,22 +593,12 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     y_color <- if (metric == "avg_risk") "#6E7E31" else "#C6473B"
     validate(need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
 
-    d <- d %>%
-      mutate(.tooltip = paste0(
-        as.character(r),
-        "<br>Week: ", format(week, "%d %b %Y"),
-        "<br>Delay Rate: ", percent(delay_rate, accuracy = 0.1),
-        "<br>Shipments: ", comma(shipments),
-        "<br>Avg Risk: ", round(avg_risk, 2)
-      ))
-
     p <- ggplot(
       d,
       aes(
         x = week,
         y = .data[[y_col]],
-        group = 1,
-        text = .tooltip
+        group = 1
       )
     ) +
       geom_line(color = y_color, linewidth = 1.1) +
@@ -651,7 +613,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       p <- p + scale_y_continuous(labels = number_format(accuracy = 0.01))
     }
 
-    finalize_chart(p, tooltip = "text")
+    finalize_chart(p)
   })
 
   output$route_drilldown_insights <- renderUI({

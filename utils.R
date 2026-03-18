@@ -627,15 +627,23 @@ renderChart <- function(expr) {
   }
 }
 
-finalize_chart <- function(p, tooltip = "text") {
+finalize_chart <- function(p, tooltip = NULL) {
   if (HAS_PLOTLY) {
-    # ggplot2 3.5+ may not propagate unrecognised aesthetics (like `text`) into
-    # the layer data, causing plotly to find a non-character value.
-    # Try with the custom tooltip first; fall back to default hover on failure.
+    # When tooltip is NULL, use plotly's built-in hover (safe default).
+    # When tooltip is specified (e.g. "text"), only use it if the geom
+    # has a geom_text layer that carries that aesthetic — otherwise plotly
+    # throws is.character(txt) is not TRUE.
     result <- tryCatch(
-      plotly::ggplotly(p, tooltip = tooltip) %>%
-        plotly::config(displayModeBar = FALSE),
+      {
+        plt <- if (!is.null(tooltip)) {
+          plotly::ggplotly(p, tooltip = tooltip)
+        } else {
+          plotly::ggplotly(p)
+        }
+        plt %>% plotly::config(displayModeBar = FALSE)
+      },
       error = function(e) {
+        # Fall back to default tooltip if custom one fails
         tryCatch(
           plotly::ggplotly(p) %>%
             plotly::config(displayModeBar = FALSE),
