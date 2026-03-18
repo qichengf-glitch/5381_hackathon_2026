@@ -627,31 +627,32 @@ renderChart <- function(expr) {
   }
 }
 
-finalize_chart <- function(p, tooltip = NULL) {
+finalize_chart <- function(p, tooltip = "text") {
   if (HAS_PLOTLY) {
-    # When tooltip is NULL, use plotly's built-in hover (safe default).
-    # When tooltip is specified (e.g. "text"), only use it if the geom
-    # has a geom_text layer that carries that aesthetic — otherwise plotly
-    # throws is.character(txt) is not TRUE.
-    result <- tryCatch(
-      {
-        plt <- if (!is.null(tooltip)) {
-          plotly::ggplotly(p, tooltip = tooltip)
-        } else {
-          plotly::ggplotly(p)
-        }
-        plt %>% plotly::config(displayModeBar = FALSE)
-      },
+    tryCatch(
+      plotly::ggplotly(p, tooltip = tooltip) %>%
+        plotly::config(displayModeBar = FALSE),
       error = function(e) {
-        # Fall back to default tooltip if custom one fails
         tryCatch(
-          plotly::ggplotly(p) %>%
+          plotly::ggplotly(p, tooltip = c("x", "y")) %>%
             plotly::config(displayModeBar = FALSE),
-          error = function(e2) p
+          error = function(e2) {
+            plotly::plot_ly(type = "scatter", mode = "none") %>%
+              plotly::layout(
+                xaxis = list(visible = FALSE),
+                yaxis = list(visible = FALSE),
+                annotations = list(list(
+                  text = "Chart unavailable",
+                  xref = "paper", yref = "paper",
+                  x = 0.5, y = 0.5, showarrow = FALSE,
+                  font = list(size = 14, color = "#999")
+                ))
+              ) %>%
+              plotly::config(displayModeBar = FALSE)
+          }
         )
       }
     )
-    result
   } else {
     p
   }
