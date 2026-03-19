@@ -251,41 +251,26 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
   })
 
   output$warehouse_utilization_plot <- shiny::renderPlot({
-    # DEBUG: minimal test to isolate error source
-    message("[DEBUG] warehouse_utilization_plot: START")
+    d <- warehouse_base() %>%
+      mutate(
+        hub = as.character(hub),
+        utilization = as.numeric(utilization),
+        predicted_utilization = as.numeric(predicted_utilization),
+        shipments = as.numeric(shipments),
+        utilization_band = as.character(utilization_band)
+      ) %>%
+      filter(!is.na(hub), nzchar(hub), !is.na(utilization)) %>%
+      arrange(desc(utilization)) %>%
+      distinct(hub, .keep_all = TRUE)
 
-    d <- tryCatch(
-      warehouse_base() %>%
-        mutate(
-          hub = as.character(hub),
-          utilization = as.numeric(utilization),
-          predicted_utilization = as.numeric(predicted_utilization),
-          shipments = as.numeric(shipments),
-          utilization_band = as.character(utilization_band)
-        ) %>%
-        filter(!is.na(hub), nzchar(hub), !is.na(utilization)) %>%
-        arrange(desc(utilization)) %>%
-        distinct(hub, .keep_all = TRUE),
-      error = function(e) {
-        message("[DEBUG] warehouse_utilization_plot data error: ", e$message)
-        NULL
-      }
-    )
-
-    if (is.null(d) || nrow(d) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No data available", cex = 1.5)
-      return(invisible(NULL))
-    }
-
-    message("[DEBUG] warehouse_utilization_plot: data OK, ", nrow(d), " rows")
+    shiny::validate(shiny::need(nrow(d) > 0, "No hub data for current filters."))
 
     d <- d %>%
       mutate(
         hub = forcats::fct_reorder(factor(hub), utilization, .na_rm = TRUE)
       )
 
-    p <- ggplot(
+    ggplot(
       d,
       aes(
         x = hub,
@@ -305,9 +290,6 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
         legend.position = "bottom",
         legend.text = element_text(size = 10)
       )
-
-    message("[DEBUG] warehouse_utilization_plot: ggplot built OK, printing")
-    p
   }, res = 110)
 
   output$capacity_stress_cards <- renderUI({
@@ -369,7 +351,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       arrange(desc(shipments)) %>%
       slice_head(n = max(8, top_n()))
 
-    validate(need(nrow(d) > 0, "No route reliability data for current filters."))
+    shiny::validate(shiny::need(nrow(d) > 0, "No route reliability data for current filters."))
 
     p <- ggplot(
       d,
@@ -404,7 +386,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
       d <- tail(d, 12)
     }
 
-    validate(need(nrow(d) > 0, "No delay trend data for current filters."))
+    shiny::validate(shiny::need(nrow(d) > 0, "No delay trend data for current filters."))
 
     p <- ggplot(
       d,
@@ -474,7 +456,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
   output$route_leaderboard <- renderDT({
     d <- route_leaderboard_data()
 
-    validate(need(nrow(d) > 0, "No route leaderboard rows for current filters."))
+    shiny::validate(shiny::need(nrow(d) > 0, "No route leaderboard rows for current filters."))
     top_route <- d$route[[1]]
 
     datatable(
@@ -514,7 +496,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
 
   selected_route <- reactive({
     d <- route_leaderboard_data()
-    validate(need(nrow(d) > 0, "No route selected."))
+    shiny::validate(shiny::need(nrow(d) > 0, "No route selected."))
 
     idx <- input$route_leaderboard_rows_selected
     if (length(idx) == 1 && idx >= 1 && idx <= nrow(d)) {
@@ -607,7 +589,7 @@ warehouse_server <- function(input, output, session, shipments, historical_shipm
     y_col <- if (metric == "avg_risk") "avg_risk" else "delay_rate"
     y_label <- if (metric == "avg_risk") "Risk Score" else "Delay Rate (%)"
     y_color <- if (metric == "avg_risk") "#6E7E31" else "#C6473B"
-    validate(need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
+    shiny::validate(shiny::need(nrow(d) > 0, "Select a route from leaderboard to view trend."))
 
     p <- ggplot(
       d,
